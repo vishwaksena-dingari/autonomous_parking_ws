@@ -257,6 +257,7 @@ class ParkingEnv:
         self.ax.add_patch(ground)
 
         # Draw parking bay outlines
+        # NOTE: bay_width is across the row (x), bay_length is depth (y)
         for bay in self.bays:
             bx = bay["x"]
             by = bay["y"]
@@ -274,8 +275,8 @@ class ParkingEnv:
 
             rect = Rectangle(
                 (llx, lly),
-                self.bay_length,
-                self.bay_width,
+                self.bay_width,  # width across row
+                self.bay_length,  # depth
                 angle=math.degrees(byaw),
                 fill=False,
                 edgecolor="white",
@@ -301,8 +302,8 @@ class ParkingEnv:
         # Goal bay highlight (will be updated on reset)
         self.goal_patch = Rectangle(
             (0, 0),
-            self.bay_length,
             self.bay_width,
+            self.bay_length,
             fill=True,
             facecolor="green",
             alpha=0.3,
@@ -351,11 +352,11 @@ class ParkingEnv:
             gy = self.goal_bay["y"]
             gyaw = self.goal_bay["yaw"]
 
-            dx_g = (self.bay_length / 2) * math.cos(gyaw) - (
-                self.bay_width / 2
+            dx_g = (self.bay_width / 2) * math.cos(gyaw) - (
+                self.bay_length / 2
             ) * math.sin(gyaw)
-            dy_g = (self.bay_length / 2) * math.sin(gyaw) + (
-                self.bay_width / 2
+            dy_g = (self.bay_width / 2) * math.sin(gyaw) + (
+                self.bay_length / 2
             ) * math.cos(gyaw)
             llx_g = gx - dx_g
             lly_g = gy - dy_g
