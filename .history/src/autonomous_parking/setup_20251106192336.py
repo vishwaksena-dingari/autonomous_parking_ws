@@ -7,10 +7,7 @@ package_name = "autonomous_parking"
 setup(
     name=package_name,
     version="0.0.0",
-    packages=[
-        package_name,
-        f"{package_name}.env2d",
-    ],
+    packages=[package_name],
     data_files=[
         # ament index
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
@@ -23,7 +20,7 @@ setup(
         # ALL yaml configs
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
     ],
-    install_requires=["setuptools", "pyyaml", "numpy", "matplotlib"],
+    install_requires=["setuptools"],
     zip_safe=True,
     maintainer="vd",
     maintainer_email="vd@todo.todo",

@@ -7,27 +7,28 @@ package_name = "autonomous_parking"
 setup(
     name=package_name,
     version="0.0.0",
+    # IMPORTANT: include the env2d subpackage so it gets installed
     packages=[
         package_name,
         f"{package_name}.env2d",
     ],
     data_files=[
-        # ament index
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
-        # package.xml
         ("share/" + package_name, ["package.xml"]),
-        # ALL launch files (parking_lot_a + parking_lot_b, etc.)
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
-        # ALL world files
         (os.path.join("share", package_name, "worlds"), glob("worlds/*.world")),
-        # ALL yaml configs
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
     ],
-    install_requires=["setuptools", "pyyaml", "numpy", "matplotlib"],
+    install_requires=[
+        "setuptools",
+        "pyyaml",
+        "numpy",
+        "matplotlib",
+    ],
     zip_safe=True,
     maintainer="vd",
-    maintainer_email="vd@todo.todo",
-    description="Autonomous parking project",
+    maintainer_email="you@example.com",  # change if you want
+    description="Autonomous parking project with 2D and Gazebo environments",
     license="TODO: License declaration",
     tests_require=["pytest"],
     entry_points={

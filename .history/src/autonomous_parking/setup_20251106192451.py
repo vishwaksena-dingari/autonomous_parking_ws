@@ -23,7 +23,7 @@ setup(
         # ALL yaml configs
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
     ],
-    install_requires=["setuptools", "pyyaml", "numpy", "matplotlib"],
+    install_requires=["setuptools"],
     zip_safe=True,
     maintainer="vd",
     maintainer_email="vd@todo.todo",
