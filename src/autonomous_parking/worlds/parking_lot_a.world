@@ -1,0 +1,216 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="parking_lot_a">
+
+    <!-- Sun / lighting -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Physics -->
+    <physics type="ode">
+      <real_time_update_rate>1000</real_time_update_rate>
+      <max_step_size>0.001</max_step_size>
+    </physics>
+
+    <!-- Ground (asphalt) -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>50 50</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>50 50</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.25 0.25 0.25 1</ambient>
+            <diffuse>0.25 0.25 0.25 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Entrance marker (green box) -->
+    <model name="entrance_marker">
+      <static>true</static>
+      <link name="link">
+        <visual name="entrance_visual">
+          <pose>-15 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>2 2 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <diffuse>0 0.8 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Central road (horizontal) -->
+    <!-- 7.5 m wide for comfortable two-way traffic -->
+    <model name="main_lane">
+      <static>true</static>
+      <link name="link">
+        <visual name="lane_surface">
+          <pose>2.5 0 0.001 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>30 7.5 0.01</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.20 0.20 0.22 1</ambient>
+            <diffuse>0.30 0.30 0.34 1</diffuse>
+          </material>
+        </visual>
+
+        <!-- Center dashed line -->
+        <visual name="dash1">
+          <pose>-10 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash2">
+          <pose>-4 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash3">
+          <pose>2 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash4">
+          <pose>8 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash5">
+          <pose>14 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Parking bays with shared lines (realistic) -->
+    <!-- Bay size ~2.7m wide x 5.5m deep -->
+    <model name="parking_bays">
+      <static>true</static>
+      <link name="link">
+
+        <!-- ===== Top row (A1..A6) ===== -->
+        <!-- Continuous back wall -->
+        <visual name="A_back_wall">
+          <pose>2.4 9.25 0.002 0 0 0</pose>
+          <geometry><box><size>16.2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- Left boundary of A1 -->
+        <visual name="A1_left">
+          <pose>-5.5 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- Shared dividers -->
+        <visual name="A1_A2_divide">
+          <pose>-2.8 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A2_A3_divide">
+          <pose>-0.1 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A3_A4_divide">
+          <pose>2.6 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A4_A5_divide">
+          <pose>5.3 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A5_A6_divide">
+          <pose>8.0 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- Right boundary of A6 -->
+        <visual name="A6_right">
+          <pose>10.7 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- ===== Bottom row (B1..B6) ===== -->
+        <!-- Continuous back wall -->
+        <visual name="B_back_wall">
+          <pose>2.4 -9.25 0.002 0 0 0</pose>
+          <geometry><box><size>16.2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- Left boundary of B1 -->
+        <visual name="B1_left">
+          <pose>-5.5 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- Shared dividers -->
+        <visual name="B1_B2_divide">
+          <pose>-2.8 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B2_B3_divide">
+          <pose>-0.1 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B3_B4_divide">
+          <pose>2.6 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B4_B5_divide">
+          <pose>5.3 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B5_B6_divide">
+          <pose>8.0 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- Right boundary of B6 -->
+        <visual name="B6_right">
+          <pose>10.7 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+      </link>
+    </model>
+
+  </world>
+</sdf>

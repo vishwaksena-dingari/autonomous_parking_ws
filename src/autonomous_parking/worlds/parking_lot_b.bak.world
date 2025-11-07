@@ -1,0 +1,406 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="parking_lot_b">
+
+    <!-- Sun / lighting -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Physics -->
+    <physics type="ode">
+      <real_time_update_rate>1000</real_time_update_rate>
+      <max_step_size>0.001</max_step_size>
+    </physics>
+
+    <!-- Ground (asphalt with texture variation) -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>50 50</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>50 50</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.2 0.2 0.22 1</ambient>
+            <diffuse>0.3 0.3 0.32 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Central Entry Lane (vertical) -->
+    <model name="entry_lane">
+      <static>true</static>
+      <link name="link">
+        <!-- Entry surface -->
+        <visual name="entry_surface">
+          <pose>0 -15 0.001 0 0 0</pose>
+          <geometry><box><size>6 10 0.01</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.35 0.35 0.37 1</diffuse>
+          </material>
+        </visual>
+        
+        <!-- Entry marking at the entrance -->
+        <visual name="entry_marking">
+          <pose>0 -20 0.002 0 0 0</pose>
+          <geometry><box><size>6 0.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 0 1</diffuse></material>
+        </visual>
+
+        <!-- Directional arrow -->
+        <visual name="arrow_shaft">
+          <pose>0 -18 0.002 0 0 0</pose>
+          <geometry><box><size>0.4 3 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="arrow_head_left">
+          <pose>-0.6 -16 0.002 0 0 0.785</pose>
+          <geometry><box><size>0.4 1.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="arrow_head_right">
+          <pose>0.6 -16 0.002 0 0 -0.785</pose>
+          <geometry><box><size>0.4 1.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Main Driving Lane (horizontal) -->
+    <model name="main_lane">
+      <static>true</static>
+      <link name="link">
+        <visual name="lane_surface">
+          <pose>0 0 0.001 0 0 0</pose>
+          <geometry><box><size>40 8 0.01</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.35 0.35 0.37 1</diffuse>
+          </material>
+        </visual>
+
+        <!-- Center lane dashes -->
+        <visual name="dash1"><pose>-12 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash2"><pose>-6 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash3"><pose>0 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash4"><pose>6 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash5"><pose>12 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- LEFT SIDE PARKING: 2 rows × 3 columns -->
+    <!-- Row 1 (closer to lane): L1, L2, L3 -->
+    <!-- Row 2 (farther from lane): L4, L5, L6 -->
+    
+    <model name="left_parking">
+      <static>true</static>
+      <link name="link">
+        
+        <!-- ROW 1: L1, L2, L3 (perpendicular, front-in from lane) -->
+        
+        <!-- L1 (leftmost) -->
+        <visual name="L1_back"><pose>-15 7 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L1_left"><pose>-16.25 8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L1_right"><pose>-13.75 8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L1_number"><pose>-15 9.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- L2 (center) -->
+        <visual name="L2_back"><pose>-10 7 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L2_left"><pose>-11.25 8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L2_right"><pose>-8.75 8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L2_number"><pose>-10 9.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- L3 (rightmost of row 1) -->
+        <visual name="L3_back"><pose>-5 7 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L3_left"><pose>-6.25 8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L3_right"><pose>-3.75 8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L3_number"><pose>-5 9.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- ROW 2: L4, L5, L6 (back row, parallel to row 1) -->
+        
+        <!-- L4 -->
+        <visual name="L4_back"><pose>-15 13.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L4_front"><pose>-15 11.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L4_left"><pose>-16.25 12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L4_right"><pose>-13.75 12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L4_number"><pose>-15 12.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- L5 -->
+        <visual name="L5_back"><pose>-10 13.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L5_front"><pose>-10 11.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L5_left"><pose>-11.25 12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L5_right"><pose>-8.75 12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L5_number"><pose>-10 12.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- L6 -->
+        <visual name="L6_back"><pose>-5 13.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L6_front"><pose>-5 11.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L6_left"><pose>-6.25 12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L6_right"><pose>-3.75 12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="L6_number"><pose>-5 12.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+      </link>
+    </model>
+
+    <!-- RIGHT SIDE PARKING: 2 rows × 3 columns (mirrored) -->
+    
+    <model name="right_parking">
+      <static>true</static>
+      <link name="link">
+        
+        <!-- ROW 1: R1, R2, R3 (perpendicular, front-in from lane) -->
+        
+        <!-- R1 -->
+        <visual name="R1_back"><pose>5 -7 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R1_left"><pose>3.75 -8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R1_right"><pose>6.25 -8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R1_number"><pose>5 -9.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- R2 -->
+        <visual name="R2_back"><pose>10 -7 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R2_left"><pose>8.75 -8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R2_right"><pose>11.25 -8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R2_number"><pose>10 -9.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- R3 -->
+        <visual name="R3_back"><pose>15 -7 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R3_left"><pose>13.75 -8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R3_right"><pose>16.25 -8.75 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R3_number"><pose>15 -9.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- ROW 2: R4, R5, R6 (back row) -->
+        
+        <!-- R4 -->
+        <visual name="R4_back"><pose>5 -13.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R4_front"><pose>5 -11.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R4_left"><pose>3.75 -12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R4_right"><pose>6.25 -12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R4_number"><pose>5 -12.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- R5 -->
+        <visual name="R5_back"><pose>10 -13.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R5_front"><pose>10 -11.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R5_left"><pose>8.75 -12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R5_right"><pose>11.25 -12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R5_number"><pose>10 -12.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+        <!-- R6 -->
+        <visual name="R6_back"><pose>15 -13.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R6_front"><pose>15 -11.5 0.002 0 0 0</pose>
+          <geometry><box><size>2.5 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R6_left"><pose>13.75 -12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R6_right"><pose>16.25 -12.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="R6_number"><pose>15 -12.5 0.003 0 0 0</pose>
+          <geometry><box><size>0.8 0.8 0.01</size></box></geometry>
+          <material><diffuse>0.3 0.6 1 1</diffuse></material>
+        </visual>
+
+      </link>
+    </model>
+
+    <!-- Entrance Sign -->
+    <model name="entrance_sign">
+      <static>true</static>
+      <link name="link">
+        <visual name="sign_post">
+          <pose>-4 -22 1 0 0 0</pose>
+          <geometry><cylinder><radius>0.1</radius><length>2</length></cylinder></geometry>
+          <material><diffuse>0.5 0.5 0.5 1</diffuse></material>
+        </visual>
+        <visual name="sign_board">
+          <pose>-4 -22 2.5 0 0 0</pose>
+          <geometry><box><size>2 0.1 1</size></box></geometry>
+          <material><diffuse>0.2 0.5 0.8 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

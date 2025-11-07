@@ -1,0 +1,281 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="parking_lot_realistic">
+
+    <!-- Sun / lighting -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Physics -->
+    <physics type="ode">
+      <real_time_update_rate>1000</real_time_update_rate>
+      <max_step_size>0.001</max_step_size>
+    </physics>
+
+    <!-- Ground (asphalt) -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>50 50</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>50 50</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.25 0.25 0.25 1</ambient>
+            <diffuse>0.25 0.25 0.25 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Entrance marker (green box) -->
+    <model name="entrance_marker">
+      <static>true</static>
+      <link name="link">
+        <visual name="entrance_visual">
+          <pose>-15 0 0 0 0 0</pose>
+          <geometry><box><size>2 2 0.02</size></box></geometry>
+          <material><diffuse>0 0.8 0 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Central road (horizontal) - 7.5m wide for comfortable two-way traffic -->
+    <model name="main_lane">
+      <static>true</static>
+      <link name="link">
+        <visual name="lane_surface">
+          <pose>2.5 0 0.001 0 0 0</pose>
+          <geometry><box><size>30 7.5 0.01</size></box></geometry>
+          <material>
+            <ambient>0.20 0.20 0.22 1</ambient>
+            <diffuse>0.30 0.30 0.34 1</diffuse>
+          </material>
+        </visual>
+
+        <!-- Center dashed lines -->
+        <visual name="dash1"><pose>-10 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash2"><pose>-4 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash3"><pose>2 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash4"><pose>8 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+        <visual name="dash5"><pose>14 0 0.002 0 0 0</pose>
+          <geometry><box><size>2 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Parking bays - REALISTIC DIMENSIONS -->
+    <!-- Bay size: 2.7m wide × 5.5m deep -->
+    <!-- Road: 7.5m wide -->
+    <!-- Top row front edge at y = 3.75 (half road = 3.75) -->
+    <!-- Top row back edge at y = 9.25 (3.75 + 5.5) -->
+    <!-- Bottom row front edge at y = -3.75 -->
+    <!-- Bottom row back edge at y = -9.25 -->
+    
+    <model name="parking_bays">
+      <static>true</static>
+      <link name="link">
+
+        <!-- ===== Top row (A1..A6) ===== -->
+        <!-- Bay dimensions: 2.7m wide × 5.5m deep -->
+        
+        <!-- A1: centered at x=-6.85 -->
+        <visual name="A1_back"><pose>-6.85 9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A1_left"><pose>-8.2 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A1_right"><pose>-5.5 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A2: centered at x=-3.15 -->
+        <visual name="A2_back"><pose>-3.15 9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A2_left"><pose>-4.5 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A2_right"><pose>-1.8 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A3: centered at x=0.55 -->
+        <visual name="A3_back"><pose>0.55 9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A3_left"><pose>-0.8 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A3_right"><pose>1.9 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A4: centered at x=4.25 -->
+        <visual name="A4_back"><pose>4.25 9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A4_left"><pose>2.9 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A4_right"><pose>5.6 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A5: centered at x=7.95 -->
+        <visual name="A5_back"><pose>7.95 9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A5_left"><pose>6.6 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A5_right"><pose>9.3 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A6: centered at x=11.65 -->
+        <visual name="A6_back"><pose>11.65 9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A6_left"><pose>10.3 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A6_right"><pose>13 6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- ===== Bottom row (B1..B6) ===== -->
+        
+        <!-- B1: centered at x=-6.85 -->
+        <visual name="B1_back"><pose>-6.85 -9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B1_left"><pose>-8.2 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B1_right"><pose>-5.5 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B2: centered at x=-3.15 -->
+        <visual name="B2_back"><pose>-3.15 -9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B2_left"><pose>-4.5 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B2_right"><pose>-1.8 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B3: centered at x=0.55 -->
+        <visual name="B3_back"><pose>0.55 -9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B3_left"><pose>-0.8 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B3_right"><pose>1.9 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B4: centered at x=4.25 -->
+        <visual name="B4_back"><pose>4.25 -9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B4_left"><pose>2.9 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B4_right"><pose>5.6 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B5: centered at x=7.95 -->
+        <visual name="B5_back"><pose>7.95 -9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B5_left"><pose>6.6 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B5_right"><pose>9.3 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B6: centered at x=11.65 -->
+        <visual name="B6_back"><pose>11.65 -9.25 0.002 0 0 0</pose>
+          <geometry><box><size>2.7 0.15 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B6_left"><pose>10.3 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B6_right"><pose>13 -6.5 0.002 0 0 0</pose>
+          <geometry><box><size>0.15 5.5 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+      </link>
+    </model>
+
+  </world>
+</sdf>

@@ -1,0 +1,281 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="parking_lot_a">
+
+    <!-- Sun / lighting -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Physics (fairly fast, stable) -->
+    <physics type="ode">
+      <real_time_update_rate>1000</real_time_update_rate>
+      <max_step_size>0.001</max_step_size>
+    </physics>
+
+    <!-- Ground: big asphalt square -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>40 40</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>40 40</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>   <!-- asphalt gray -->
+            <diffuse>0.3 0.3 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Entrance marker (green square) at (-15,0) -->
+    <model name="entrance_marker">
+      <static>true</static>
+      <link name="link">
+        <visual name="entrance_visual">
+          <pose>-15 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>2 2 0.01</size>
+            </box>
+          </geometry>
+          <material>
+            <diffuse>0 0.8 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Parking bays: front-in, two rows (A: y=+9, B: y=-9), lane in the middle -->
+
+    <model name="parking_bays">
+      <static>true</static>
+      <link name="link">
+
+        <!-- ---- Top row (A1..A6), front-in from center lane toward +Y ---- -->
+        <!-- Each bay is a U-shaped white outline (3 thin rectangles) -->
+
+        <!-- A1 centered near x=-6, y=+9 -->
+        <visual name="A1_back">
+          <pose>-6 10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A1_left">
+          <pose>-7.5 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A1_right">
+          <pose>-4.5 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A2: x=-2.5 -->
+        <visual name="A2_back">
+          <pose>-2.5 10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A2_left">
+          <pose>-4 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A2_right">
+          <pose>-1 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A3: x=1 -->
+        <visual name="A3_back">
+          <pose>1 10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A3_left">
+          <pose>-0.5 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A3_right">
+          <pose>2.5 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A4: x=4.5 -->
+        <visual name="A4_back">
+          <pose>4.5 10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A4_left">
+          <pose>3 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A4_right">
+          <pose>6 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A5: x=8 -->
+        <visual name="A5_back">
+          <pose>8 10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A5_left">
+          <pose>6.5 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A5_right">
+          <pose>9.5 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- A6: x=11.5 -->
+        <visual name="A6_back">
+          <pose>11.5 10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A6_left">
+          <pose>10 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="A6_right">
+          <pose>13 9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- ---- Bottom row (B1..B6), front-in from center lane toward -Y ---- -->
+
+        <!-- B1: x=-6 -->
+        <visual name="B1_back">
+          <pose>-6 -10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B1_left">
+          <pose>-7.5 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B1_right">
+          <pose>-4.5 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B2: x=-2.5 -->
+        <visual name="B2_back">
+          <pose>-2.5 -10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B2_left">
+          <pose>-4 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B2_right">
+          <pose>-1 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B3: x=1 -->
+        <visual name="B3_back">
+          <pose>1 -10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B3_left">
+          <pose>-0.5 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B3_right">
+          <pose>2.5 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B4: x=4.5 -->
+        <visual name="B4_back">
+          <pose>4.5 -10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B4_left">
+          <pose>3 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B4_right">
+          <pose>6 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B5: x=8 -->
+        <visual name="B5_back">
+          <pose>8 -10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B5_left">
+          <pose>6.5 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B5_right">
+          <pose>9.5 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <!-- B6: x=11.5 -->
+        <visual name="B6_back">
+          <pose>11.5 -10 0 0 0 0</pose>
+          <geometry><box><size>3 0.1 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B6_left">
+          <pose>10 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="B6_right">
+          <pose>13 -9 0 0 0 0</pose>
+          <geometry><box><size>0.1 2 0.01</size></box></geometry>
+          <material><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+      </link>
+    </model>
+
+  </world>
+</sdf>
+

@@ -1,0 +1,39 @@
+lot_a:
+  entrance:
+    x: -15.0
+    y: 0.0
+    yaw: 0.0
+  bays:
+    # Top row (A1..A6) — facing south (down) toward the main lane
+    - {id: A1, x: -4.15, y:  6.5, yaw: 0.0}
+    - {id: A2, x: -1.45, y:  6.5, yaw: 0.0}
+    - {id: A3, x:  1.25, y:  6.5, yaw: 0.0}
+    - {id: A4, x:  3.95, y:  6.5, yaw: 0.0}
+    - {id: A5, x:  6.65, y:  6.5, yaw: 0.0}
+    - {id: A6, x:  9.35, y:  6.5, yaw: 0.0}
+    # Bottom row (B1..B6) — facing north (up) toward the main lane
+    - {id: B1, x: -4.15, y: -6.5, yaw: 3.14159}
+    - {id: B2, x: -1.45, y: -6.5, yaw: 3.14159}
+    - {id: B3, x:  1.25, y: -6.5, yaw: 3.14159}
+    - {id: B4, x:  3.95, y: -6.5, yaw: 3.14159}
+    - {id: B5, x:  6.65, y: -6.5, yaw: 3.14159}
+    - {id: B6, x:  9.35, y: -6.5, yaw: 3.14159}
+
+lot_b:
+  entrance:
+    x: 0.0
+    y: -18.0
+    yaw: 1.5708      # facing north (+Y) along the vertical road
+  bays:
+    # Horizontal leg (H1..H5) — above the east-west road, facing south
+    - {id: H1, x: -5.4, y: 17.5, yaw: 0.0}
+    - {id: H2, x: -2.7, y: 17.5, yaw: 0.0}
+    - {id: H3, x:  0.0, y: 17.5, yaw: 0.0}
+    - {id: H4, x:  2.7, y: 17.5, yaw: 0.0}
+    - {id: H5, x:  5.4, y: 17.5, yaw: 0.0}
+    # Vertical leg (V1..V5) — left of the north-south road, facing east
+    - {id: V1, x: -7.5, y: -10.2, yaw: 1.5708}
+    - {id: V2, x: -7.5, y:  -6.6, yaw: 1.5708}
+    - {id: V3, x: -7.5, y:  -3.0, yaw: 1.5708}
+    - {id: V4, x: -7.5, y:   0.6, yaw: 1.5708}
+    - {id: V5, x: -7.5, y:   4.2, yaw: 1.5708}
