@@ -237,6 +237,85 @@ class ParkingEnv:
 
     # ======================= RENDERING =======================
 
+    # ======================= ROAD DRAWING =======================
+    def _draw_roads(self):
+        """
+        Draw simple asphalt roads that roughly match the Gazebo layouts.
+
+        - lot_a: one horizontal road between the two rows of bays
+        - lot_b: T-shaped road (vertical for V1–V5, horizontal for H1–H5)
+        """
+        road_color = (0.18, 0.18, 0.18)
+        road_width = 6.0  # ~6 m total width (2 × 3 m lanes)
+
+        if self.lot_name == "lot_a":
+            # One horizontal road between top (A*) and bottom (B*) rows
+            xs = [b["x"] for b in self.bays]
+            x_min = min(xs) - self.bay_width
+            x_max = max(xs) + self.bay_width
+
+            road = Rectangle(
+                (x_min, -road_width / 2.0),
+                x_max - x_min,
+                road_width,
+                facecolor=road_color,
+                edgecolor="none",
+                zorder=0.25,
+            )
+            self.ax.add_patch(road)
+
+        elif self.lot_name == "lot_b":
+            # Split bays into horizontal (H*) and vertical (V*) legs
+            v_bays = [b for b in self.bays if b["id"].upper().startswith("V")]
+            h_bays = [b for b in self.bays if b["id"].upper().startswith("H")]
+
+            # --- Horizontal leg (in front of H1..H5) ---
+            front_y = None
+            if h_bays:
+                # Bays are above the road, facing "down" toward it
+                h_y = min(b["y"] for b in h_bays)  # all are 17.5
+                front_y = h_y - self.bay_length / 2.0  # front edge of bays
+
+                # Span slightly beyond first/last bay horizontally
+                x_min = min(b["x"] for b in h_bays) - self.bay_width / 2.0
+                x_max = max(b["x"] for b in h_bays) + self.bay_width / 2.0
+
+                road_y_min = front_y - road_width  # road is below bays
+                horiz_road = Rectangle(
+                    (x_min, road_y_min),
+                    x_max - x_min,
+                    road_width,
+                    facecolor=road_color,
+                    edgecolor="none",
+                    zorder=0.25,
+                )
+                self.ax.add_patch(horiz_road)
+
+            # --- Vertical leg (beside V1..V5) ---
+            if v_bays:
+                # Vertical road should start just to the right of the V bays
+                y_min = min(b["y"] for b in v_bays) - self.bay_length / 2.0
+                if front_y is not None:
+                    # Connect up to the front of the horizontal road
+                    y_max = front_y
+                else:
+                    y_max = max(b["y"] for b in v_bays) + self.bay_length / 2.0
+
+                # Rightmost V bay center (all V bays share x = -7.5)
+                v_x = max(b["x"] for b in v_bays)
+                # Front edge of V bays is at v_x + bay_length / 2 (they face east)
+                road_x_min = v_x + self.bay_length / 2.0
+
+                vert_road = Rectangle(
+                    (road_x_min, y_min),
+                    road_width,
+                    y_max - y_min,
+                    facecolor=road_color,
+                    edgecolor="none",
+                    zorder=0.25,
+                )
+                self.ax.add_patch(vert_road)
+
     def _setup_render(self):
         """Initialize matplotlib figure for visualization."""
         plt.ion()
@@ -259,6 +338,8 @@ class ParkingEnv:
             zorder=0,
         )
         self.ax.add_patch(ground)
+        # Draw roads to match Gazebo layout
+        self._draw_roads()
 
         # Draw parking bay outlines
         # NOTE: bay_width is across the row (x), bay_length is depth (y)
@@ -268,11 +349,13 @@ class ParkingEnv:
             byaw = bay["yaw"]
 
             # Compute lower-left corner for rotated rectangle
-            dx = (self.bay_length / 2) * math.cos(byaw) - (
-                self.bay_width / 2
+            # Compute lower-left corner for rotated rectangle
+            # (center at (bx, by), width across row, length/depth along bay)
+            dx = (self.bay_width / 2) * math.cos(byaw) - (
+                self.bay_length / 2
             ) * math.sin(byaw)
-            dy = (self.bay_length / 2) * math.sin(byaw) + (
-                self.bay_width / 2
+            dy = (self.bay_width / 2) * math.sin(byaw) + (
+                self.bay_length / 2
             ) * math.cos(byaw)
             llx = bx - dx
             lly = by - dy
@@ -292,13 +375,13 @@ class ParkingEnv:
             self.bay_patches.append(rect)
 
             # Add bay ID label, slightly inset into the bay
-            label_offset = 0.1 * self.bay_length  # move inside along bay heading
-            lx = bx + label_offset * math.cos(byaw)
-            ly = by + label_offset * math.sin(byaw)
+            # label_offset = 0.2 * self.bay_length  # move inside along bay heading
+            # lx = bx + label_offset * math.cos(byaw)
+            # ly = by + label_offset * math.sin(byaw)
             # Add bay ID label
             self.ax.text(
-                lx,
-                ly,
+                bx,
+                by,
                 bay["id"],
                 color="white",
                 ha="center",
