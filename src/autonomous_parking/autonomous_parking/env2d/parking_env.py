@@ -46,13 +46,14 @@ class ParkingEnv:
         self.dt = dt
         self.max_steps = max_steps
 
-        # Car dimensions (compact car approximation)
-        # self.car_length = 4.5  # m
-        # self.car_width = 2.0  # m
-        # self.wheelbase = 2.7  # m (distance between front and rear axles)
-        self.car_length = 4.2  # m  (was 4.5)
-        self.car_width = 1.9  # m  (was 2.0)
-        self.wheelbase = 2.6  # m  (slightly shorter to match length)
+        # ---- Car dimensions (compact car, fits comfortably in bay) ----
+        self.car_length = 4.2  # m  (slightly shorter than bay depth)
+        self.car_width = 1.9  # m
+        self.wheelbase = 2.6  # m
+
+        # ---- Parking bay dimensions (match SDF) ----
+        self.bay_length = 5.5  # m (depth)
+        self.bay_width = 2.7  # m (width)
 
         # Control limits
         self.max_speed = 3.0  # m/s
@@ -256,24 +257,25 @@ class ParkingEnv:
         self.ax.add_patch(ground)
 
         # Draw parking bay outlines
-        bay_length = 5.5
-        bay_width = 2.7
-
         for bay in self.bays:
             bx = bay["x"]
             by = bay["y"]
             byaw = bay["yaw"]
 
             # Compute lower-left corner for rotated rectangle
-            dx = (bay_length / 2) * math.cos(byaw) - (bay_width / 2) * math.sin(byaw)
-            dy = (bay_length / 2) * math.sin(byaw) + (bay_width / 2) * math.cos(byaw)
+            dx = (self.bay_length / 2) * math.cos(byaw) - (
+                self.bay_width / 2
+            ) * math.sin(byaw)
+            dy = (self.bay_length / 2) * math.sin(byaw) + (
+                self.bay_width / 2
+            ) * math.cos(byaw)
             llx = bx - dx
             lly = by - dy
 
             rect = Rectangle(
                 (llx, lly),
-                bay_length,
-                bay_width,
+                self.bay_length,
+                self.bay_width,
                 angle=math.degrees(byaw),
                 fill=False,
                 edgecolor="white",
@@ -299,8 +301,8 @@ class ParkingEnv:
         # Goal bay highlight (will be updated on reset)
         self.goal_patch = Rectangle(
             (0, 0),
-            bay_length,
-            bay_width,
+            self.bay_length,
+            self.bay_width,
             fill=True,
             facecolor="green",
             alpha=0.3,
@@ -330,7 +332,7 @@ class ParkingEnv:
 
         x, y, yaw, v = self.state
 
-        # Update car position
+        # Update car position (rear-axle reference → rectangle lower-left)
         dx = (self.car_length / 2) * math.cos(yaw) - (self.car_width / 2) * math.sin(
             yaw
         )
@@ -349,11 +351,12 @@ class ParkingEnv:
             gy = self.goal_bay["y"]
             gyaw = self.goal_bay["yaw"]
 
-            bay_length = 5.5
-            bay_width = 2.7
-
-            dx_g = (bay_length / 2) * math.cos(gyaw) - (bay_width / 2) * math.sin(gyaw)
-            dy_g = (bay_length / 2) * math.sin(gyaw) + (bay_width / 2) * math.cos(gyaw)
+            dx_g = (self.bay_length / 2) * math.cos(gyaw) - (
+                self.bay_width / 2
+            ) * math.sin(gyaw)
+            dy_g = (self.bay_length / 2) * math.sin(gyaw) + (
+                self.bay_width / 2
+            ) * math.cos(gyaw)
             llx_g = gx - dx_g
             lly_g = gy - dy_g
 

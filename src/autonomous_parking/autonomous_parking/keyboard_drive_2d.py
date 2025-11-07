@@ -2,15 +2,17 @@
 """
 Keyboard teleoperation for ParkingEnv
 
-Controls:
-  ↑ : accelerate forward
-  ↓ : accelerate backward
-  ← : steer left
-  → : steer right
-  SPACE : brake (v = 0)
-  r : reset episode (new random bay)
-  b : reset to specific bay (cycles through bays)
-  q : quit
+Gazebo-style controls:
+
+  w / ↑ : accelerate forward
+  s / ↓ : accelerate backward (reverse)
+  a / ← : steer left
+  d / → : steer right
+  SPACE : brake (v = 0, steer = 0)
+  r     : reset episode (new random bay)
+  b     : reset to specific bay (cycles through bays)
+  h     : help
+  q     : quit
 """
 
 import math
@@ -25,114 +27,124 @@ from autonomous_parking.env2d.parking_env import ParkingEnv
 class KeyboardController:
     """
     Keyboard teleoperation for 2D parking environment.
-    
+
     Attributes:
         env: ParkingEnv instance
         v: Current commanded velocity (m/s)
         delta: Current commanded steering angle (rad)
     """
-    
+
     def __init__(self, env: ParkingEnv):
         self.env = env
-        self.v = 0.0        # current commanded speed
-        self.delta = 0.0    # current commanded steering angle
-        
+        self.v = 0.0  # current commanded speed
+        self.delta = 0.0  # current commanded steering angle
+
         # Bay cycling for 'b' key
         self.bay_index = 0
-        
-        # Acceleration parameters
-        self.v_increment = 0.3      # m/s per keypress
+
+        # Acceleration / steering increments
+        self.v_increment = 0.3  # m/s per keypress
         self.delta_increment = math.radians(5.0)  # rad per keypress
-        
+
         # Stats
         self.total_steps = 0
         self.successful_parks = 0
         self.total_episodes = 0
-    
+
     def on_key(self, event):
-        """Handle keyboard events."""
-        
-        if event.key == "up":
+        """Handle keyboard events from matplotlib."""
+
+        k = event.key
+
+        # ---- DRIVE COMMANDS (WASD + arrow aliases) ----
+        if k in ("w", "up"):
+            # accelerate forward
             self.v += self.v_increment
-            
-        elif event.key == "down":
+
+        elif k in ("s", "down"):
+            # accelerate backward
             self.v -= self.v_increment
-            
-        elif event.key == "left":
+
+        elif k in ("a", "left"):
+            # steer left
             self.delta += self.delta_increment
-            
-        elif event.key == "right":
+
+        elif k in ("d", "right"):
+            # steer right
             self.delta -= self.delta_increment
-            
-        elif event.key == " ":
-            # Brake
+
+        # ---- BRAKE ----
+        elif k == " ":
             self.v = 0.0
             self.delta = 0.0
             print("[brake] v=0, delta=0")
             return
-            
-        elif event.key == "r":
-            # Reset to random bay
+
+        # ---- RESET (RANDOM BAY) ----
+        elif k == "r":
             print("[reset] New random goal bay")
             self.total_episodes += 1
             self.v = 0.0
             self.delta = 0.0
-            obs = self.env.reset()
+            self.env.reset()
             self.env.render()
             print(f"  → Target bay: {self.env.goal_bay['id']}")
-            print(f"  → Episodes: {self.total_episodes}, Success: {self.successful_parks}")
+            print(
+                f"  → Episodes: {self.total_episodes}, "
+                f"Success: {self.successful_parks}"
+            )
             return
-            
-        elif event.key == "b":
-            # Reset to specific bay (cycle through)
+
+        # ---- RESET (CYCLE BAYS) ----
+        elif k == "b":
             bays = self.env.bays
             bay = bays[self.bay_index % len(bays)]
             self.bay_index += 1
-            
+
             print(f"[reset] Target bay: {bay['id']}")
             self.total_episodes += 1
             self.v = 0.0
             self.delta = 0.0
-            obs = self.env.reset(bay_id=bay['id'])
+            self.env.reset(bay_id=bay["id"])
             self.env.render()
             return
-            
-        elif event.key == "q":
-            # Quit
+
+        # ---- QUIT ----
+        elif k == "q":
             print("\n=== Session Summary ===")
             print(f"Total episodes: {self.total_episodes}")
             print(f"Successful parks: {self.successful_parks}")
             print(f"Total steps: {self.total_steps}")
             if self.total_episodes > 0:
-                print(f"Success rate: {100*self.successful_parks/self.total_episodes:.1f}%")
+                rate = 100 * self.successful_parks / self.total_episodes
+                print(f"Success rate: {rate:.1f}%")
             print("[quit]")
             plt.close(self.env.fig)
             return
-            
-        elif event.key == "h":
-            # Help
+
+        # ---- HELP ----
+        elif k == "h":
             self._print_help()
             return
-            
+
         else:
             # Ignore other keys
             return
-        
-        # Clip commands to physical limits
+
+        # Clip to env limits
         self.v = float(np.clip(self.v, -self.env.max_speed, self.env.max_speed))
         self.delta = float(np.clip(self.delta, -self.env.max_steer, self.env.max_steer))
-        
-        # Take multiple small steps per keypress for smoother control
+
+        # Take multiple small steps per keypress for smooth motion
         steps_per_press = 5
         for _ in range(steps_per_press):
             obs, reward, done, info = self.env.step((self.v, self.delta))
             self.env.render()
             self.total_steps += 1
-            
-            # Print state
+
             x, y, yaw, v_actual = self.env.state
             local_x, local_y, yaw_err, v_obs, dist = obs
-            
+
             print(
                 f"v={self.v:+5.2f} m/s | "
                 f"δ={math.degrees(self.delta):+6.1f}° | "
@@ -141,14 +153,14 @@ class KeyboardController:
                 f"yaw_err={math.degrees(yaw_err):+6.1f}° | "
                 f"reward={reward:+7.2f}"
             )
-            
+
             if done:
-                if info['success']:
+                if info["success"]:
                     print(f"✓ SUCCESS! Parked in {info['steps']} steps")
                     self.successful_parks += 1
                 else:
-                    print(f"✗ Episode ended (timeout or out-of-bounds)")
-                
+                    print("✗ Episode ended (timeout or out-of-bounds)")
+
                 print("[auto-reset]")
                 self.total_episodes += 1
                 self.v = 0.0
@@ -156,24 +168,26 @@ class KeyboardController:
                 self.env.reset()
                 self.env.render()
                 break
-    
+
     def _print_help(self):
         """Print control help."""
-        print("""
+        print(
+            """
 ╔═══════════════════════════════════════════════════════════╗
-║                 KEYBOARD CONTROLS                         ║
+║                 KEYBOARD CONTROLS (2D)                    ║
 ╠═══════════════════════════════════════════════════════════╣
-║  ↑         : Accelerate forward                           ║
-║  ↓         : Accelerate backward (reverse)                ║
-║  ←         : Steer left                                   ║
-║  →         : Steer right                                  ║
-║  SPACE     : Brake (stop all motion)                      ║
-║  r         : Reset episode (random bay)                   ║
-║  b         : Reset to specific bay (cycles)               ║
-║  h         : Show this help                               ║
-║  q         : Quit                                         ║
+║  w / ↑   : Accelerate forward                             ║
+║  s / ↓   : Accelerate backward (reverse)                  ║
+║  a / ←   : Steer left                                     ║
+║  d / →   : Steer right                                    ║
+║  SPACE   : Brake (stop all motion)                        ║
+║  r       : Reset episode (random bay)                     ║
+║  b       : Reset to specific bay (cycles through bays)    ║
+║  h       : Show this help                                 ║
+║  q       : Quit                                           ║
 ╚═══════════════════════════════════════════════════════════╝
-""")
+"""
+        )
 
 
 def main():
@@ -193,12 +207,12 @@ def main():
         default=None,
         help="Start with specific bay (e.g., 'A1')",
     )
-    
+
     args = parser.parse_args()
-    
+
     print(f"Initializing ParkingEnv with lot={args.lot}")
     env = ParkingEnv(lot_name=args.lot, dt=0.1)
-    
+
     # Initial reset
     if args.bay:
         try:
@@ -210,22 +224,21 @@ def main():
             env.reset()
     else:
         env.reset()
-    
+
     env.render()
-    
+
     # Setup controller
     ctrl = KeyboardController(env)
-    
+
     # Print instructions
     ctrl._print_help()
     print(f"Target bay: {env.goal_bay['id']}")
-    print("\n→ Focus the matplotlib window and use keyboard controls")
+    print("\n→ Focus the matplotlib window and use WASD / arrows")
     print("→ Press 'h' for help\n")
-    
+
     # Connect keyboard handler
     env.fig.canvas.mpl_connect("key_press_event", ctrl.on_key)
-    
-    # Show plot (blocking)
+
     try:
         plt.show(block=True)
     except KeyboardInterrupt:
