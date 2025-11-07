@@ -55,6 +55,10 @@ class ParkingEnv:
         self.bay_length = 5.5  # m (depth)
         self.bay_width = 2.7  # m (width)
 
+        # Visual size of goal highlight (slightly smaller than bay)
+        self.goal_length = 0.9 * self.bay_length
+        self.goal_width = 0.9 * self.bay_width
+
         # Control limits
         self.max_speed = 3.0  # m/s
         self.max_steer = math.radians(35.0)  # rad
@@ -287,10 +291,14 @@ class ParkingEnv:
             self.ax.add_patch(rect)
             self.bay_patches.append(rect)
 
+            # Add bay ID label, slightly inset into the bay
+            label_offset = 0.1 * self.bay_length  # move inside along bay heading
+            lx = bx + label_offset * math.cos(byaw)
+            ly = by + label_offset * math.sin(byaw)
             # Add bay ID label
             self.ax.text(
-                bx,
-                by,
+                lx,
+                ly,
                 bay["id"],
                 color="white",
                 ha="center",
@@ -302,8 +310,8 @@ class ParkingEnv:
         # Goal bay highlight (will be updated on reset)
         self.goal_patch = Rectangle(
             (0, 0),
-            self.bay_width,
-            self.bay_length,
+            self.goal_width,
+            self.goal_length,
             fill=True,
             facecolor="green",
             alpha=0.3,
@@ -352,11 +360,11 @@ class ParkingEnv:
             gy = self.goal_bay["y"]
             gyaw = self.goal_bay["yaw"]
 
-            dx_g = (self.bay_width / 2) * math.cos(gyaw) - (
-                self.bay_length / 2
+            dx_g = (self.goal_width / 2) * math.cos(gyaw) - (
+                self.goal_length / 2
             ) * math.sin(gyaw)
-            dy_g = (self.bay_width / 2) * math.sin(gyaw) + (
-                self.bay_length / 2
+            dy_g = (self.goal_width / 2) * math.sin(gyaw) + (
+                self.goal_length / 2
             ) * math.cos(gyaw)
             llx_g = gx - dx_g
             lly_g = gy - dy_g
