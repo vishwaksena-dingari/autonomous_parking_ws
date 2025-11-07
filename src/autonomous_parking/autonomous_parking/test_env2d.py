@@ -1,29 +1,38 @@
 #!/usr/bin/env python3
-import random
-from autonomous_parking.parking_env import ParkingEnv
+"""
+Simple smoke test for the 2D parking environment.
 
+Usage:
+    ros2 run autonomous_parking test_env2d
+"""
+
+import argparse
+
+from autonomous_parking.env2d.parking_env import ParkingEnv
 
 
 def main():
-    env = ParkingEnv(lot_name="lot_a")
-    state = env.reset()
-    print("Initial state:", state)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--lot",
+        default="lot_a",
+        help="Parking lot name from bays.yaml (default: lot_a)",
+    )
+    args, _ = parser.parse_known_args()
 
-    for t in range(20):
-        # random action: v in [-0.3, 0.3], w in [-0.5, 0.5]
-        v = random.uniform(-0.3, 0.3)
-        w = random.uniform(-0.5, 0.5)
-        state, reward, done, info = env.step([v, w])
-        print(
-            f"t={t:02d}, state={['%.2f' % s for s in state]}, "
-            f"reward={reward:.3f}, dist={info['dist']:.2f}, "
-            f"yaw_err={info['yaw_err']:.2f}, success={info['success']}"
-        )
-        if done:
-            print("Episode finished.")
-            break
+    print(f"Creating 2D environment for lot: {args.lot}")
+    env = ParkingEnv(lot_name=args.lot)
+
+    env.reset()
+    env.render()
+    print("Close the window to exit.")
+    # keep window open until user closes it
+    import matplotlib.pyplot as plt
+
+    plt.show()
+    env.close()
+    print("Environment closed cleanly.")
 
 
 if __name__ == "__main__":
     main()
-
