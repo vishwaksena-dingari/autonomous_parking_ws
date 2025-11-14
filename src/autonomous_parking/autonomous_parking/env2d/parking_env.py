@@ -251,9 +251,27 @@ class ParkingEnv:
 
         done = False
         success = False
+        collision = False
+
+        # # --- Simple collision detection using sensors ---
+        # if sensors:
+        #     min_sensor = min(sensors)
+        #     # If any sensor reads extremely close (< 0.2 m), treat as collision
+        #     if min_sensor < 0.05:
+        #         collision = True
+        #         reward -= 10.0
+        #         done = True
+        # --- Soft wall penalty using sensors (no hard termination) ---
+        if sensors:
+            min_sensor = min(sensors)
+
+            # If we are very close to the invisible world boundary, add a penalty,
+            # but do NOT terminate the episode here.
+            if min_sensor < 0.5:  # within 0.5 m of wall
+                reward -= 2.0  # small penalty for hugging the edge
 
         # Success condition
-        if dist < self.pos_tol and abs(yaw_err) < self.yaw_tol:
+        if (not collision) and dist < self.pos_tol and abs(yaw_err) < self.yaw_tol:
             reward += 50.0
             done = True
             success = True
@@ -262,13 +280,21 @@ class ParkingEnv:
         if abs(x) > 25.0 or abs(y) > 25.0:
             reward -= 20.0
             done = True
+            collision = True
 
         # Timeout
         if self.steps >= self.max_steps:
             done = True
 
+        # info = {
+        #     "success": success,
+        #     "dist": dist,
+        #     "yaw_err": yaw_err,
+        #     "steps": self.steps,
+        # }
         info = {
             "success": success,
+            "collision": collision,
             "dist": dist,
             "yaw_err": yaw_err,
             "steps": self.steps,
