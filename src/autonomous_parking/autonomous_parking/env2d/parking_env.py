@@ -25,7 +25,8 @@ class ParkingEnv:
 
     State: [x, y, yaw, v] (absolute pose + velocity)
     Action: [v_cmd, steer_cmd] (m/s, rad)
-    Observation: [goal_x_local, goal_y_local, yaw_err, v, dist]
+    Observation:
+        [local_x, local_y, yaw_err, v, dist, s_left, s_center, s_right]
     """
 
     def __init__(
@@ -33,6 +34,7 @@ class ParkingEnv:
         lot_name: str = "lot_a",
         dt: float = 0.1,
         max_steps: int = 300,
+        render_mode: str = "human",
     ):
         """
         Initialize parking environment.
@@ -41,10 +43,12 @@ class ParkingEnv:
             lot_name: Name of parking lot ('lot_a' or 'lot_b')
             dt: Time step for physics simulation (seconds)
             max_steps: Maximum steps per episode
+            render_mode: (reserved for future use, e.g. 'human')
         """
         self.lot_name = lot_name
         self.dt = dt
         self.max_steps = max_steps
+        self.render_mode = render_mode
 
         # ---- Car dimensions (compact car, fits comfortably in bay) ----
         self.car_length = 4.2  # m  (slightly shorter than bay depth)
@@ -118,7 +122,7 @@ class ParkingEnv:
     def _get_obs(self):
         """
         Compute observation in robot-centric frame.
-        Returns: [goal_x_local, goal_y_local, yaw_err, v, dist]
+        Returns: [goal_x_local, goal_y_local, yaw_err, v, dist, sensor_left, sensor_center, sensor_right]]
         """
         x, y, yaw, v = self.state
         gx = self.goal_bay["x"]
@@ -141,7 +145,44 @@ class ParkingEnv:
         # Distance to goal
         dist = math.hypot(dx, dy)
 
-        return np.array([local_x, local_y, yaw_err, v, dist], dtype=np.float32)
+        # 3 range sensors (left, center, right)
+        ranges = self._compute_sensors()
+
+        return np.array(
+            [local_x, local_y, yaw_err, v, dist, *ranges],
+            dtype=np.float32,
+        )
+
+    def _compute_sensors(self):
+        """
+        Very simple 3-ray range sensor model (left, center, right).
+
+        Returns distances in meters, clipped to max_range.
+        """
+        # 3 range sensors (left, center, right)
+        rays = [-math.pi / 6, 0.0, +math.pi / 6]
+        max_range = 10.0
+        readings = []
+
+        x, y, yaw, _ = self.state
+
+        for r in rays:
+            ang = yaw + r
+            dist = max_range
+
+            # crude detection: distance to global square bounds [-20, 20]
+            # (just to have some non-trivial readings)
+            for bound in [-20.0, 20.0]:
+                dx = bound - x
+                dy = bound - y
+                # project on ray direction
+                proj = dx * math.cos(ang) + dy * math.sin(ang)
+                if proj > 0.0:  # only obstacles in front
+                    dist = min(dist, abs(proj))
+
+            readings.append(round(dist, 2))
+
+        return readings
 
     # ======================= GYM API =======================
 
@@ -200,7 +241,7 @@ class ParkingEnv:
 
         # Compute observation
         obs = self._get_obs()
-        local_x, local_y, yaw_err, v_obs, dist = obs
+        local_x, local_y, yaw_err, v_obs, dist, *sensors = obs
 
         # Reward shaping
         reward = 0.0

@@ -43,8 +43,12 @@ class KeyboardController:
         self.bay_index = 0
 
         # Acceleration / steering increments
-        self.v_increment = 0.3  # m/s per keypress
-        self.delta_increment = math.radians(5.0)  # rad per keypress
+        # self.v_increment = 0.3  # m/s per keypress
+        # self.delta_increment = math.radians(5.0)  # rad per keypress
+
+        # Gazebo-style control parameters
+        self.v_fixed = 1.5  # constant forward speed for 'w'
+        self.delta_increment = math.radians(5.0)  # steering step per keypress
 
         # Stats
         self.total_steps = 0
@@ -57,23 +61,45 @@ class KeyboardController:
         k = event.key
 
         # ---- DRIVE COMMANDS (WASD + arrow aliases) ----
+        # ---- DRIVE COMMANDS (Gazebo-style) ----
+        # if k in ("w", "up"):
+        #     # accelerate forward
+        #     self.v += self.v_increment
         if k in ("w", "up"):
-            # accelerate forward
-            self.v += self.v_increment
+            # Forward at fixed speed (no reverse here)
+            self.v = self.v_fixed
 
+        # elif k in ("s", "down"):
+        #     # accelerate backward
+        #     self.v -= self.v_increment
         elif k in ("s", "down"):
-            # accelerate backward
-            self.v -= self.v_increment
+            # Full stop: no translation, no steering
+            self.v = 0.0
+            self.delta = 0.0
+            print("[stop] v=0, delta=0")
+            return
 
+        # elif k in ("a", "left"):
+        #     # steer left
+        #     self.delta += self.delta_increment
         elif k in ("a", "left"):
-            # steer left
+            # Steer left, do NOT change speed
             self.delta += self.delta_increment
 
+        # elif k in ("d", "right"):
+        #     # steer right
+        #     self.delta -= self.delta_increment
         elif k in ("d", "right"):
-            # steer right
+            # Steer right, do NOT change speed
             self.delta -= self.delta_increment
 
         # ---- BRAKE ----
+        # elif k == " ":
+        #     self.v = 0.0
+        #     self.delta = 0.0
+        #     print("[brake] v=0, delta=0")
+        #     return
+        # ---- BRAKE (same as 's') ----
         elif k == " ":
             self.v = 0.0
             self.delta = 0.0
@@ -81,6 +107,19 @@ class KeyboardController:
             return
 
         # ---- RESET (RANDOM BAY) ----
+        # elif k == "r":
+        #     print("[reset] New random goal bay")
+        #     self.total_episodes += 1
+        #     self.v = 0.0
+        #     self.delta = 0.0
+        #     self.env.reset()
+        #     self.env.render()
+        #     print(f"  → Target bay: {self.env.goal_bay['id']}")
+        #     print(
+        #         f"  → Episodes: {self.total_episodes}, "
+        #         f"Success: {self.successful_parks}"
+        #     )
+        #     return
         elif k == "r":
             print("[reset] New random goal bay")
             self.total_episodes += 1
@@ -96,6 +135,18 @@ class KeyboardController:
             return
 
         # ---- RESET (CYCLE BAYS) ----
+        # elif k == "b":
+        #     bays = self.env.bays
+        #     bay = bays[self.bay_index % len(bays)]
+        #     self.bay_index += 1
+
+        #     print(f"[reset] Target bay: {bay['id']}")
+        #     self.total_episodes += 1
+        #     self.v = 0.0
+        #     self.delta = 0.0
+        #     self.env.reset(bay_id=bay["id"])
+        #     self.env.render()
+        #     return
         elif k == "b":
             bays = self.env.bays
             bay = bays[self.bay_index % len(bays)]
@@ -110,6 +161,17 @@ class KeyboardController:
             return
 
         # ---- QUIT ----
+        # elif k == "q":
+        #     print("\n=== Session Summary ===")
+        #     print(f"Total episodes: {self.total_episodes}")
+        #     print(f"Successful parks: {self.successful_parks}")
+        #     print(f"Total steps: {self.total_steps}")
+        #     if self.total_episodes > 0:
+        #         rate = 100 * self.successful_parks / self.total_episodes
+        #         print(f"Success rate: {rate:.1f}%")
+        #     print("[quit]")
+        #     plt.close(self.env.fig)
+        #     return
         elif k == "q":
             print("\n=== Session Summary ===")
             print(f"Total episodes: {self.total_episodes}")

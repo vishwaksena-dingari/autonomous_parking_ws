@@ -1,4 +1,0 @@
-[console_scripts]
-keyboard_drive_2d = autonomous_parking.keyboard_drive_2d:main
-print_bays = autonomous_parking.print_bays:main
-test_env2d = autonomous_parking.test_env2d:main
