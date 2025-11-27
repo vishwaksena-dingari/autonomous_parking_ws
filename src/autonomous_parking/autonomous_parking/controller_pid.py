@@ -35,7 +35,7 @@ class PIDController:
 def run_auto(lot: str = "lot_a", render=True):
     """Run an autonomous drive from entrance to target bay."""
     env = ParkingEnv(lot)
-    obs = env.reset()
+    obs, _ = env.reset()
     pid_yaw = PIDController(1.2, 0.0, 0.3)
     pid_speed = PIDController(0.6, 0.0, 0.1)
 
@@ -51,14 +51,17 @@ def run_auto(lot: str = "lot_a", render=True):
             break
 
         # goal_x, goal_y, yaw_err, v, dist = obs
-        goal_x, goal_y, yaw_err, v, dist, s_left, s_center, s_right = obs
+        # goal_x, goal_y, yaw_err, v, dist, lidar...
+        # We only need the first 5 for the PID
+        goal_x, goal_y, yaw_err, v, dist = obs[:5]
 
         # Compute steering and speed commands
         steer_cmd = np.clip(pid_yaw.control(yaw_err, dt), -env.max_steer, env.max_steer)
         v_target = np.clip(pid_speed.control(dist, dt), -1.5, 1.5)
 
         # Step simulation
-        obs, reward, done, info = env.step([v_target, steer_cmd])
+        obs, reward, terminated, truncated, info = env.step([v_target, steer_cmd])
+        done = terminated or truncated
         total_reward += reward
 
         if render:

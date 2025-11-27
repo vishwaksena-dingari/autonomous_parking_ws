@@ -1,0 +1,34 @@
+# Test Lot: Extreme Narrow Spaces
+# Purpose: Test generalization to ultra-tight constraints
+# Should NOT be used in training
+
+name: "Extreme Narrow Test"
+difficulty: "extreme"
+test_only: true
+
+entrance:
+  x: 12.0
+  y: 0.0
+  yaw: 3.14159
+
+# Mixed angles - very challenging
+bays:
+  - {id: T1, x: -5.0, y: 5.0, yaw: 0.262}    # 15°
+  - {id: T2, x: 0.0, y: 5.0, yaw: 0.524}     # 30°
+  - {id: T3, x: 5.0, y: 5.0, yaw: 0.785}     # 45°
+  - {id: T4, x: -5.0, y: -5.0, yaw: -0.262}  # -15°
+  - {id: T5, x: 0.0, y: -5.0, yaw: -0.524}   # -30°
+  - {id: T6, x: 5.0, y: -5.0, yaw: -0.785}   # -45°
+
+# Narrow aisle (3m - very tight!)
+roads:
+  - {type: horizontal, x: 0.0, y: 0.0, width: 12, length: 3}
+
+# 80% occupied (high difficulty)
+default_occupancy: 0.8
+
+boundaries:
+  x_min: -10.0
+  x_max: 15.0
+  y_min: -10.0
+  y_max: 10.0

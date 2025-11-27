@@ -10,6 +10,9 @@ setup(
     packages=[
         package_name,
         f"{package_name}.env2d",
+        f"{package_name}.planning",
+        f"{package_name}.sensors",
+        f"{package_name}.obstacles",
     ],
     data_files=[
         # ament index
@@ -23,7 +26,16 @@ setup(
         # ALL yaml configs
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
     ],
-    install_requires=["setuptools", "pyyaml", "numpy", "matplotlib"],
+    install_requires=[
+        "setuptools",
+        "pyyaml",
+        "numpy",
+        "matplotlib",
+        "scipy",  # Required for B-spline path smoothing
+        "gymnasium",  # Required for RL environments
+        "stable-baselines3",  # Required for PPO training
+        "tensorboard",  # Required for training monitoring
+    ],
     zip_safe=True,
     maintainer="vd",
     maintainer_email="vd@todo.todo",

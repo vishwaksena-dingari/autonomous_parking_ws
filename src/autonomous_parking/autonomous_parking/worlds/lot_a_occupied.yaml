@@ -1,0 +1,21 @@
+# Lot A - Occupied Variant
+# 30-50% occupied bays, no dynamic obstacles
+
+base_lot: "lot_a"
+variant: "occupied"
+
+# Static occupied bays (30-50% of 10 bays = 3-5 bays)
+# Randomize from this list
+occupancy_options:
+  - [A1, A3, B2, B4]        # 40% occupied
+  - [A2, A4, B1, B3, B5]    # 50% occupied
+  - [A1, A5, B3]            # 30% occupied
+
+# Select one randomly each reset
+default_occupancy: 0.4
+
+# No dynamic obstacles
+dynamic_obstacles:
+  pedestrians: 0
+  shopping_carts: 0
+  moving_cars: 0

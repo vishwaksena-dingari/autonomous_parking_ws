@@ -200,7 +200,8 @@ class KeyboardController:
         # Take multiple small steps per keypress for smooth motion
         steps_per_press = 5
         for _ in range(steps_per_press):
-            obs, reward, done, info = self.env.step((self.v, self.delta))
+            obs, reward, terminated, truncated, info = self.env.step((self.v, self.delta))
+            done = terminated or truncated
             self.env.render()
             self.total_steps += 1
 

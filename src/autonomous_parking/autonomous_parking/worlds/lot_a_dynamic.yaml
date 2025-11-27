@@ -1,0 +1,14 @@
+# Lot A - Dynamic Variant (Full Complexity)
+# Occupied bays + moving obstacles
+
+base_lot: "lot_a"
+variant: "dynamic"
+
+# Static occupied bays
+default_occupancy: 0.3
+
+# Dynamic obstacles (realistic density)
+dynamic_obstacles:
+  pedestrians: 2
+  shopping_carts: 1
+  moving_cars: 1

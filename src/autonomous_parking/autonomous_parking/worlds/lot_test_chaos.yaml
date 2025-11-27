@@ -1,0 +1,52 @@
+# Test Lot: Chaotic Mall Scenario
+# Purpose: Test robustness to complexity
+# Should NOT be used in training
+
+name: "Chaotic Mall Test"
+difficulty: "extreme"
+test_only: true
+
+entrance:
+  x: -20.0
+  y: 0.0
+  yaw: 0.0
+
+# Irregular layout - mix of everything
+bays:
+  # Perpendicular
+  - {id: M1, x: -10.0, y: 8.0, yaw: 0.0}
+  - {id: M2, x: -5.0, y: 8.0, yaw: 0.0}
+  
+  # 45° angled
+  - {id: M3, x: 0.0, y: 8.0, yaw: 0.785}
+  - {id: M4, x: 5.0, y: 8.0, yaw: 0.785}
+  
+  # 30° angled  
+  - {id: M5, x: 10.0, y: 8.0, yaw: -0.524}
+  
+  # Bottom row - different orientations
+  - {id: M6, x: -10.0, y: -8.0, yaw: 1.5708}
+  - {id: M7, x: -5.0, y: -8.0, yaw: -1.5708}
+  - {id: M8, x: 0.0, y: -8.0, yaw: 0.0}
+  - {id: M9, x: 5.0, y: -8.0, yaw: 0.0}
+  - {id: M10, x: 10.0, y: -8.0, yaw: 0.0}
+
+# Irregular entrance (not aligned with main aisle)
+roads:
+  - {type: horizontal, x: 0.0, y: 0.0, width: 25, length: 5}
+  - {type: horizontal, x: -20.0, y: 0.0, width: 8, length: 4}
+
+# HIGH dynamic obstacle density
+dynamic_obstacles:
+  pedestrians: 5
+  shopping_carts: 3
+  moving_cars: 1
+
+# Medium occupancy
+default_occupancy: 0.5
+
+boundaries:
+  x_min: -25.0
+  x_max: 15.0
+  y_min: -15.0
+  y_max: 15.0

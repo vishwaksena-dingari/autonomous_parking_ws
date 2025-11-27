@@ -1,0 +1,14 @@
+# Lot A - Empty Variant (Training Baseline)
+# Clean lot with no obstacles or occupied bays
+
+base_lot: "lot_a"
+variant: "empty"
+
+# No occupied bays
+occupied_bays: []
+
+# No dynamic obstacles
+dynamic_obstacles:
+  pedestrians: 0
+  shopping_carts: 0
+  moving_cars: 0

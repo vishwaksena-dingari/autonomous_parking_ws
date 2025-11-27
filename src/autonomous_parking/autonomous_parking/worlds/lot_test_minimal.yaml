@@ -1,0 +1,38 @@
+# Test Lot: Minimal Rural Lot
+# Purpose: Test if agent learned parking vs memorized paths
+# Should NOT be used in training
+
+name: "Minimal Rural Test"
+difficulty: "easy"
+test_only: true
+
+entrance:
+  x: 15.0
+  y: 0.0
+  yaw: 3.14159
+
+# Only 5 bays - very simple
+bays:
+  - {id: R1, x: 0.0, y: 5.0, yaw: -1.5708}
+  - {id: R2, x: 0.0, y: 0.0, yaw: -1.5708}
+  - {id: R3, x: 0.0, y: -5.0, yaw: -1.5708}
+  - {id: R4, x: 8.0, y: 2.5, yaw: 1.5708}
+  - {id: R5, x: 8.0, y: -2.5, yaw: 1.5708}
+
+# Very wide aisles (10m - easy)
+roads:
+  - {type: horizontal, x: 4.0, y: 0.0, width: 16, length: 10}
+
+# No obstacles, low occupancy
+default_occupancy: 0.2
+
+dynamic_obstacles:
+  pedestrians: 0
+  shopping_carts: 0
+  moving_cars: 0
+
+boundaries:
+  x_min: -5.0
+  x_max: 18.0
+  y_min: -10.0
+  y_max: 10.0

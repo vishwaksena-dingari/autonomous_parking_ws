@@ -26,3 +26,39 @@ __pycache__/
 
 
 .hirstory/
+
+# Training results (models, videos, tensorboard)
+results/
+logs/
+
+# Evaluation results
+eval_results/
+
+# Large generated files
+*.mp4
+*.avi
+*.zip
+*.tar.gz
+*.pkl
+*.pth
+
+# Egg info (Python package metadata)
+*.egg-info/
+
+# Scratch/temporary files
+_scratch/
+
+# Archive folder
+archive/
+
+# Version-specific documentation (keep in _scratch/)
+*_v[0-9]*.md
+V[0-9]*_*.md
+project_dump.md
+
+# Temporary/junk patterns
+z*.txt
+con*.txt
+*.bak
+*copy.py
+*copy.md

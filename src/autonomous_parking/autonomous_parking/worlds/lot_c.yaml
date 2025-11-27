@@ -1,0 +1,48 @@
+# Parking Lot C: Underground Garage
+# Difficulty: Hard
+# Features: Tight spaces, support columns, angled bays (30°)
+
+name: "Underground Garage"
+difficulty: "hard"
+
+entrance:
+  x: 15.0
+  y: 0.0
+  yaw: 3.14159  # Facing WEST
+
+# Angled bays (30° from perpendicular for easier entry)
+bays:
+  # Left column of angled bays (facing SE)
+  - {id: U1, x: -8.0, y: 8.0, yaw: -0.524}   # -30°
+  - {id: U2, x: -8.0, y: 4.0, yaw: -0.524}
+  - {id: U3, x: -8.0, y: 0.0, yaw: -0.524}
+  - {id: U4, x: -8.0, y: -4.0, yaw: -0.524}
+  - {id: U5, x: -8.0, y: -8.0, yaw: -0.524}
+  
+  # Right column of angled bays (facing SW)
+  - {id: U6, x: 8.0, y: 8.0, yaw: -2.618}    # -150° (30° from opposite side)
+  - {id: U7, x: 8.0, y: 4.0, yaw: -2.618}
+  - {id: U8, x: 8.0, y: 0.0, yaw: -2.618}
+  - {id: U9, x: 8.0, y: -4.0, yaw: -2.618}
+  - {id: U10, x: 8.0, y: -8.0, yaw: -2.618}
+
+# Static obstacles (support columns)
+obstacles:
+  - {type: column, x: 0.0, y: 10.0, radius: 0.6}
+  - {type: column, x: 0.0, y: -10.0, radius: 0.6}
+  - {type: column, x: -12.0, y: 5.0, radius: 0.5}
+  - {type: column, x: 12.0, y: 5.0, radius: 0.5}
+  - {type: column, x: -12.0, y: -5.0, radius: 0.5}
+  - {type: column, x: 12.0, y: -5.0, radius: 0.5}
+
+# Road network (narrower aisles)
+roads:
+  - {type: horizontal, x: 0.0, y: 0.0, width: 16, length: 4}  # Main aisle (narrow)
+  - {type: horizontal, x: 15.0, y: 0.0, width: 8, length: 4}  # Entrance
+
+# World boundaries
+boundaries:
+  x_min: -18.0
+  x_max: 20.0
+  y_min: -15.0
+  y_max: 15.0

@@ -18,6 +18,9 @@ lot_a:
     - {id: B4, x:  3.95, y: -6.5, yaw: 3.14159}
     - {id: B5, x:  6.65, y: -6.5, yaw: 3.14159}
     - {id: B6, x:  9.35, y: -6.5, yaw: 3.14159}
+  roads:
+    # Horizontal road centered at y=0, width 7.5m, length 50m
+    - {x: 0.0, y: 0.0, length: 50.0, width: 7.5, yaw: 0.0}
 
 lot_b:
   entrance:
@@ -37,3 +40,8 @@ lot_b:
     - {id: V3, x: -7.5, y:  -3.0, yaw: 1.5708}
     - {id: V4, x: -7.5, y:   0.6, yaw: 1.5708}
     - {id: V5, x: -7.5, y:   4.2, yaw: 1.5708}
+  roads:
+    # Vertical road: x=0, y=-7.5 (center of -25 to 10), length 35m, width 7.5m
+    - {x: 0.0, y: -7.5, length: 35.0, width: 7.5, yaw: 1.5708}
+    # Horizontal road: y=10, x=0, length 50m, width 7.5m
+    - {x: 0.0, y: 10.0, length: 50.0, width: 7.5, yaw: 0.0}

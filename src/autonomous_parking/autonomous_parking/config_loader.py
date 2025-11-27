@@ -13,6 +13,25 @@ except ImportError:
     _HAS_AMENT = False
 
 
+# def _get_config_path() -> Path:
+#     """
+#     Find bays.yaml.
+
+#     - In a ROS 2 environment: use ament_index to find the installed share directory.
+#     - In a plain Python environment (e.g. Mac without ROS): use the source tree layout.
+
+#     Layouts:
+#       ROS install:  <share>/autonomous_parking/config/bays.yaml
+#       Source tree:  src/autonomous_parking/config/bays.yaml
+#     """
+#     if _HAS_AMENT:
+#         pkg_share = Path(get_package_share_directory("autonomous_parking"))  # type: ignore[arg-type]
+#         return pkg_share / "config" / "bays.yaml"
+
+#     # Fallback: running directly from the source checkout
+#     here = Path(__file__).resolve()
+#     src_root = here.parent.parent  # .../src/autonomous_parking
+#     return src_root / "config" / "bays.yaml"
 def _get_config_path() -> Path:
     """
     Find bays.yaml.
@@ -21,8 +40,8 @@ def _get_config_path() -> Path:
     - In a plain Python environment (e.g. Mac without ROS): use the source tree layout.
 
     Layouts:
-      ROS install:  <share>/autonomous_parking/config/bays.yaml
-      Source tree:  src/autonomous_parking/config/bays.yaml
+        ROS install:  <share>/autonomous_parking/config/bays.yaml
+        Source tree:  src/autonomous_parking/config/bays.yaml
     """
     if _HAS_AMENT:
         pkg_share = Path(get_package_share_directory("autonomous_parking"))  # type: ignore[arg-type]
@@ -30,8 +49,10 @@ def _get_config_path() -> Path:
 
     # Fallback: running directly from the source checkout
     here = Path(__file__).resolve()
+    # here = .../src/autonomous_parking/autonomous_parking/config_loader.py
     src_root = here.parent.parent  # .../src/autonomous_parking
     return src_root / "config" / "bays.yaml"
+
 
 
 def load_raw_bays_yaml(path: str | Path | None = None) -> dict:

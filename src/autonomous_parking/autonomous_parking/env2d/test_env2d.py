@@ -13,7 +13,7 @@ from autonomous_parking.env2d.parking_env import ParkingEnv
 def test_simple_motion(env, num_steps=50):
     """Test basic forward motion with slight steering."""
     print("\n=== Test: Simple Motion ===")
-    obs = env.reset()
+    obs, _ = env.reset()
     print(f"Initial obs: {obs}")
     print(f"Goal bay: {env.goal_bay['id']}")
     
@@ -22,7 +22,8 @@ def test_simple_motion(env, num_steps=50):
         v_cmd = 1.0
         steer_cmd = math.radians(5.0)
         
-        obs, reward, done, info = env.step((v_cmd, steer_cmd))
+        obs, reward, terminated, truncated, info = env.step((v_cmd, steer_cmd))
+        done = terminated or truncated
         
         print(
             f"t={t:03d} | "
@@ -50,7 +51,7 @@ def test_specific_bay(env, bay_id, num_steps=100):
     print(f"\n=== Test: Parking in Bay {bay_id} ===")
     
     try:
-        obs = env.reset(bay_id=bay_id)
+        obs, _ = env.reset(bay_id=bay_id)
     except ValueError as e:
         print(f"Error: {e}")
         return False
@@ -71,7 +72,8 @@ def test_specific_bay(env, bay_id, num_steps=100):
         else:
             v_cmd = 1.0
         
-        obs, reward, done, info = env.step((v_cmd, steer_cmd))
+        obs, reward, terminated, truncated, info = env.step((v_cmd, steer_cmd))
+        done = terminated or truncated
         
         if t % 10 == 0:  # Print every 10 steps
             print(
