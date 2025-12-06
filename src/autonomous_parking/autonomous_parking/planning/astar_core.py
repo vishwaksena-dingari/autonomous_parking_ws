@@ -18,7 +18,7 @@ from typing import List, Tuple, Optional, Dict
 
 import numpy as np
 
-from .smoothing import smooth_path
+from .smoothing import smooth_path_douglas_peucker
 
 
 class AStarPlanner:
@@ -216,8 +216,8 @@ class AStarPlanner:
             self.grid_to_world(gx, gy) for gx, gy in path_grid
         ]
 
-        # 3) Smooth path using helper module
-        smoothed_xy = smooth_path(
+        # 3) Smooth path using Douglas-Peucker visibility-based smoothing
+        smoothed_xy = smooth_path_douglas_peucker(
             path=world_path,
             obstacles=obstacles,
             world_to_grid_fn=self.world_to_grid,

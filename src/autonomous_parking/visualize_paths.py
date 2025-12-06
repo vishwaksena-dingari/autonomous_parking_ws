@@ -17,7 +17,7 @@ from autonomous_parking.env2d.waypoint_env import WaypointEnv
 from autonomous_parking.config_loader import load_parking_config
 
 
-def visualize_all_paths():
+def visualize_all_paths(): 
     lots = ["lot_a", "lot_b"]
     output_dir = "path_visualizations"
     os.makedirs(output_dir, exist_ok=True)

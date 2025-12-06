@@ -10,7 +10,10 @@ import os
 import argparse
 import warnings
 import json
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None  # v41: Make cv2 optional for non-video runs
 import numpy as np
 from pathlib import Path
 
@@ -224,7 +227,7 @@ class CurriculumEarlyStopCallback(BaseCallback):
         verbose: int = 0,
     ):
         super().__init__(verbose)
-        self.check_freq = check_freq
+        self.check_freq = max(1, check_freq)  # v41: Guard against 0 (n_envs > 1000)
         self.min_total_steps = min_total_steps
         self.smax_success_thresh = smax_success_thresh
         self.smax_min_steps = smax_min_steps
@@ -311,7 +314,20 @@ class CurriculumEarlyStopCallback(BaseCallback):
 
 
 
-def make_waypoint_env(rank: int, max_episode_steps: int = 800, multi_lot: bool = True, enable_curriculum: bool = False, verbose: bool = True):
+def make_waypoint_env(
+    rank: int, 
+    max_episode_steps: int = 800, 
+    multi_lot: bool = True, 
+    enable_curriculum: bool = False, 
+    verbose: bool = True,
+    seed: int = 42,  # v41: Explicit seed parameter
+    # v38.9: Reward tuning parameters
+    align_w: float = 50.0,
+    success_bonus: float = 50.0,
+    bay_entry_bonus: float = 60.0,
+    corridor_penalty: float = 0.05,
+    vel_reward_w: float = 0.05,
+):
     """
     Create a waypoint-following environment for hierarchical RL.
     
@@ -320,6 +336,12 @@ def make_waypoint_env(rank: int, max_episode_steps: int = 800, multi_lot: bool =
         max_episode_steps: Maximum steps per episode
         multi_lot: If True, randomly select between lot_a and lot_b on each reset
         enable_curriculum: If True, use v15 CurriculumManager for progressive learning
+        seed: Base seed for reproducibility (actual seed = seed + rank)
+        align_w: Weight for parking alignment reward
+        success_bonus: Bonus for successful parking
+        bay_entry_bonus: Bonus for entering bay
+        corridor_penalty: Penalty for corridor deviations
+        vel_reward_w: Weight for velocity reward
     """
     def _init():
         env = WaypointEnv(
@@ -329,9 +351,15 @@ def make_waypoint_env(rank: int, max_episode_steps: int = 800, multi_lot: bool =
             render_mode=None,
             max_steps=max_episode_steps,  # Pass max steps to environment
             verbose=verbose,
+            # v38.9: Pass reward tuning params to env
+            align_w=align_w,
+            success_bonus=success_bonus,
+            bay_entry_bonus=bay_entry_bonus,
+            corridor_penalty=corridor_penalty,
+            vel_reward_w=vel_reward_w,
         )
         env = Monitor(env)
-        env.reset(seed=42 + rank)
+        env.reset(seed=seed + rank)  # v41: Use explicit seed parameter
         return env
     return _init
 
@@ -356,7 +384,60 @@ def main():
                         help="SB3 log interval (in rollouts)")
     parser.add_argument("--quiet-env", action="store_true",
                         help="Disable per-episode/per-step env prints")
+    
+    # ===== v40: TUNED DEFAULTS (Full Pipeline: rand_005 + ppo_003) =====
+    # Reward weights - from Stage 1 winner: rand_005_045940 (score: -150.0)
+    parser.add_argument("--align-w", type=float, default=100.0,
+                        help="Parking alignment reward weight (TUNED v40)")
+    parser.add_argument("--success-bonus", type=float, default=50.0,
+                        help="Success bonus reward (TUNED v40)")
+    parser.add_argument("--bay-entry-bonus", type=float, default=90.0,
+                        help="Bay entry bonus (TUNED v40)")
+    parser.add_argument("--corridor-penalty", type=float, default=0.1,
+                        help="Corridor penalty weight (TUNED v40)")
+    parser.add_argument("--vel-reward-w", type=float, default=0.01,
+                        help="Velocity reward weight (TUNED v40)")
+    
+    # PPO hyperparameters - from Stage 2 winner: ppo_003_055433 (score: -443.7)
+    parser.add_argument("--ent-coef", type=float, default=0.005,
+                        help="PPO entropy coefficient (TUNED v40)")
+    parser.add_argument("--learning-rate", type=float, default=0.0003,
+                        help="PPO learning rate (TUNED v40)")
+    parser.add_argument("--clip-range", type=float, default=0.2,
+                        help="PPO clip range (TUNED v40)")
+    parser.add_argument("--gamma", type=float, default=0.995,
+                        help="PPO discount factor (TUNED v40)")
+    parser.add_argument("--gae-lambda", type=float, default=0.98,
+                        help="PPO GAE lambda (TUNED v40)")
+    parser.add_argument("--n-steps", type=int, default=2048,
+                        help="PPO rollout steps per env (TUNED v40)")
+    parser.add_argument("--batch-size", type=int, default=64,
+                        help="PPO minibatch size (TUNED v40)")
+    parser.add_argument("--vf-coef", type=float, default=0.7,
+                        help="PPO value function coefficient (TUNED v40)")
+    parser.add_argument("--max-grad-norm", type=float, default=0.5,
+                        help="PPO max gradient norm (TUNED v40)")
+    parser.add_argument("--n-epochs", type=int, default=15,
+                        help="PPO epochs per update (TUNED v40)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="v41: Global random seed for reproducibility")
+    
     args = parser.parse_args()
+    
+    # v41: Global seeding for reproducibility
+    np.random.seed(args.seed)
+    try:
+        from stable_baselines3.common.utils import set_random_seed
+        set_random_seed(args.seed)
+    except Exception:
+        pass
+    try:
+        import torch
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
+    except Exception:
+        pass
     
     # Results directory
     base_dir = os.path.join("results", "ppo_hierarchical")
@@ -429,7 +510,14 @@ def main():
             max_episode_steps=args.max_episode_steps,
             multi_lot=args.multi_lot,
             enable_curriculum=args.use_curriculum,
-            verbose=not args.quiet_env,     
+            verbose=not args.quiet_env,
+            seed=args.seed,  # v41: Use global seed
+            # v38.8: Pass tuning args
+            align_w=args.align_w,
+            success_bonus=args.success_bonus,
+            bay_entry_bonus=args.bay_entry_bonus,
+            corridor_penalty=args.corridor_penalty,
+            vel_reward_w=args.vel_reward_w,
         ) for i in range(args.n_envs)
     ])
     
@@ -438,27 +526,35 @@ def main():
         make_waypoint_env(
             0, 
             max_episode_steps=args.max_episode_steps,
-            multi_lot=args.multi_lot,
+            multi_lot=False,  # v41: Fixed lot for deterministic eval
             enable_curriculum=False,  # No curriculum during evaluation
-            verbose=False,   
+            verbose=False,
+            seed=args.seed + 1000,  # v41: Different seed for eval
+            # v38.8: Pass tuning args
+            align_w=args.align_w,
+            success_bonus=args.success_bonus,
+            bay_entry_bonus=args.bay_entry_bonus,
+            corridor_penalty=args.corridor_penalty,
+            vel_reward_w=args.vel_reward_w,
         )
     ])
     
-    # PPO model (simpler task = faster learning)
+    # PPO model - all params from CLI args for tuning
     print("Creating PPO model...")
     model = PPO(
         policy="MlpPolicy",
         env=train_env,
         verbose=1,
-        n_steps=2048 // args.n_envs,
-        batch_size=64,
-        n_epochs=10,
-        gamma=0.99,
-        gae_lambda=0.95,
-        learning_rate=1e-4,  # Lowered for stability (was 3e-4)
-        clip_range=0.1,  # More conservative updates (was 0.2)
-        ent_coef=0.05,  # Higher exploration (was 0.01)
-        vf_coef=0.5,
+        n_steps=args.n_steps,
+        batch_size=args.batch_size,
+        n_epochs=args.n_epochs,
+        gamma=args.gamma,
+        gae_lambda=args.gae_lambda,
+        learning_rate=args.learning_rate,
+        clip_range=args.clip_range,
+        ent_coef=args.ent_coef,
+        vf_coef=args.vf_coef,
+        max_grad_norm=args.max_grad_norm,
         tensorboard_log=os.path.join(base_dir, "tb"),
     )
 
@@ -470,16 +566,14 @@ def main():
     # else:
     #     print("TensorBoard run dir  : <logger has no directory>")
 
-        # Make sure TB base dir exists (optional)
+        # Make sure TB base dir exists
     os.makedirs(abs_tb_dir, exist_ok=True)
 
-    # Make sure TB base dir exists (optional but nice)
-    os.makedirs(abs_tb_dir, exist_ok=True)
-
-    # Try to get the SB3 logger directory without depending on model.logger property
+    # Try to get the SB3 logger directory
     tb_run_dir = None
     try:
-        raw_logger = getattr(model, "_logger", None)
+        # v41 FIX: Use public 'logger' attribute, not private '_logger'
+        raw_logger = getattr(model, "logger", None) or getattr(model, "_logger", None)
         if raw_logger is not None:
             if hasattr(raw_logger, "get_dir"):
                 tb_run_dir = raw_logger.get_dir()
@@ -579,7 +673,7 @@ def main():
     # Curriculum-aware early stop + logging
     if args.use_curriculum:
         early_stop_callback = CurriculumEarlyStopCallback(
-            check_freq=1000 // args.n_envs,
+            check_freq=max(1, 1000 // args.n_envs),  # v41: Guard against n_envs > 1000
             min_total_steps=args.total_steps // 3,   # don't stop in first 1/3 of budget
             smax_success_thresh=0.7,
             smax_min_steps=100_000,
@@ -590,14 +684,17 @@ def main():
               "(will stop when Smax is stable and successful).")
 
     if args.record_video:
-        video_dir = os.path.join(log_dir, "training_videos")
-        video_callback = VideoRecorderCallback(
-            video_dir=video_dir,
-            record_freq=args.video_freq,
-            verbose=1
-        )
-        callbacks.append(video_callback)
-        print(f"📹 Video recording enabled: {video_dir}")
+        if cv2 is None:
+            print("⚠️ --record-video requested, but OpenCV is not installed. Skipping video recording.")
+        else:
+            video_dir = os.path.join(log_dir, "training_videos")
+            video_callback = VideoRecorderCallback(
+                video_dir=video_dir,
+                record_freq=args.video_freq,
+                verbose=1
+            )
+            callbacks.append(video_callback)
+            print(f"📹 Video recording enabled: {video_dir}")
     
     # Train
     print("\n🚀 Starting hierarchical training...")
@@ -656,6 +753,7 @@ def main():
         "use_curriculum": bool(args.use_curriculum),
         "curriculum_stage_index": stage_idx,
         "curriculum_stage_name": stage_name,
+        "cli_args": vars(args),  # v41: Full CLI args for reproducibility
     }
     meta_path = model_path.replace(".zip", ".meta.json")
     try:

@@ -16,11 +16,12 @@ import matplotlib
 # Headless backend: no GUI windows during training / video capture
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, Arrow
 import matplotlib.transforms as transforms  # noqa: F401 (reserved for future use)
 
 from ..config_loader import load_parking_config
 from ..sensors.lidar import EnhancedLidar
+from ..sensors.occupied_bays import OccupiedBayManager  # v38.9: Parked car detection
 
 
 class ParkingEnv(gym.Env):
@@ -29,8 +30,10 @@ class ParkingEnv(gym.Env):
 
     State (internal): [x, y, yaw, v]  (absolute pose + velocity)
     Action: [v_cmd, steer_cmd]        (m/s, rad)
-    Observation (37D):
-        [local_x, local_y, yaw_err, v, dist, lidar_0, ..., lidar_31]
+    Observation (69D):
+        [local_x, local_y, yaw_err, v, dist, lidar_0, ..., lidar_63]
+    
+    v38.9: Lidar consistency fix - now uses all 64 rays.
     """
 
     metadata = {
@@ -67,6 +70,7 @@ class ParkingEnv(gym.Env):
         self.car_length = 4.2  # m  (slightly shorter than bay depth)
         self.car_width = 1.9   # m
         self.wheelbase = 2.6   # m
+        self.collision_penalty = -500.0  # v40: Harsh penalty for hitting physical objects
 
         # ---- Parking bay dimensions (match SDF) ----
         self.bay_length = 5.5  # m (depth)
@@ -78,7 +82,7 @@ class ParkingEnv(gym.Env):
 
         # ---- Control limits ----
         self.max_speed = 3.0              # m/s
-        self.max_steer = math.radians(35)  # ~35 degrees
+        self.max_steer = math.radians(45)  # ~45 degrees (Super Agile: R ~ 2.6m)
 
         # Random state for reproducibility (decoupled from Gym's own RNG)
         self.random_state = np.random.RandomState()
@@ -100,14 +104,15 @@ class ParkingEnv(gym.Env):
             dtype=np.float32,
         )
 
-        # Observation space: [local_x, local_y, yaw_err, v, dist, lidar_0, ..., lidar_31]
-        # Total: 37D (5 state + 32 lidar)
+        # Observation space: [local_x, local_y, yaw_err, v, dist, lidar_0, ..., lidar_63]
+        # Total: 69D (5 state + 64 lidar)
+        # v38.9: Changed from 32 to 64 lidar rays for consistency with EnhancedLidar
         obs_low = np.array(
-            [-50.0, -50.0, -np.pi, -5.0, 0.0] + [0.0] * 32,
+            [-50.0, -50.0, -np.pi, -5.0, 0.0] + [0.0] * 64,
             dtype=np.float32,
         )
         obs_high = np.array(
-            [50.0, 50.0, np.pi, 5.0, 50.0] + [10.0] * 32,
+            [50.0, 50.0, np.pi, 5.0, 50.0] + [20.0] * 64,  # 20.0 = lidar max_range
             dtype=np.float32,
         )
         self.observation_space = spaces.Box(
@@ -129,24 +134,37 @@ class ParkingEnv(gym.Env):
         self.roads = cfg.get("roads", [])
 
         # ---- Enhanced Lidar Sensor ----
-        # 32-ray lidar: balanced for RL performance
+        # Lidar sensor (CRITICAL FIX: Increased from 32 to 64 rays for precision parking)
         self.lidar = EnhancedLidar(
-            num_rays=32,
-            max_range=10.0,
+            num_rays=64,  # FIXED: was 32
+            max_range=20.0,
             noise_std=0.02,
             min_range=0.1,
         )
 
-        # Occupied bays (for future use)
-        self.occupied_bays = []
+        # v41.2: Override fields for micro-curriculum
+        self.max_spawn_dist_override = None     # Existing
+        self.spawn_side_override = None         # Existing
+        self.aligned_spawn_override = False     # NEW: For straight-in baby parking
+        self.lateral_offset_override = None     # NEW: For offset training
+
+        # ---- Occupied Bay Manager (v38.9: Parked car detection) ----
+        # Manages which bays have parked cars (visible to lidar)
+        self.occupied_manager = OccupiedBayManager(
+            all_bays=self.bays,
+            occupancy_rate=0.3,  # 30% of bays have parked cars
+        )
 
         # ---- Episode state ----
         self.state = None          # [x, y, yaw, v]
         self.goal_bay = None
-        self.steps = 0
+        self.occupied_bays = []
+        self.parked_patches = [] # v40: Parked car patches
         self.episode_count = 0
+        self.episode_start_time = 0.0
+
         self.last_steering = 0.0
-        self.max_spawn_dist_override = None  # v15: curriculum override
+        # v15 attributes max_spawn_dist_override/spawn_side_override removed (handled in v41 block above)
 
         # Dynamic tolerances driven by curriculum
         self.current_tol_pos = 0.5
@@ -158,6 +176,7 @@ class ParkingEnv(gym.Env):
         self.car_patch = None
         self.car_front_stripe = None
         self.goal_patch = None
+        self.goal_arrow = None
         self.bay_patches = []
 
     # ======================= HELPERS =======================
@@ -167,20 +186,9 @@ class ParkingEnv(gym.Env):
         """Wrap angle to [-pi, pi]."""
         return (theta + math.pi) % (2 * math.pi) - math.pi
 
-    def _pick_goal_bay(self, bay_id=None):
-        """
-        Select target parking bay.
-        For RL training, randomize across all bays for generalization.
-        """
-        if bay_id is None:
-            self.goal_bay = random.choice(self.bays)
-        else:
-            matches = [b for b in self.bays if b["id"] == bay_id]
-            if not matches:
-                raise ValueError(
-                    f"Bay '{bay_id}' not found. Available: {[b['id'] for b in self.bays]}"
-                )
-            self.goal_bay = matches[0]
+    # NOTE: _pick_goal_bay() was removed (v41 cleanup).
+    # It had a +90° yaw offset that was inconsistent with reset().
+    # Bay selection now happens directly in reset().
 
     def _sample_start_pose(self):
         """
@@ -198,7 +206,7 @@ class ParkingEnv(gym.Env):
         Compute observation in robot-centric frame.
 
         Returns:
-            [local_x, local_y, yaw_err, v, dist, lidar_0, ..., lidar_31]  (37D)
+            [local_x, local_y, yaw_err, v, dist, lidar_0, ..., lidar_63]  (69D)
         """
         x, y, yaw, v = self.state
         gx = self.goal_bay["x"]
@@ -225,7 +233,7 @@ class ParkingEnv(gym.Env):
         dy_center = gy - center_y
         dist = math.hypot(dx_center, dy_center)
 
-        # Enhanced 32-ray lidar scan
+        # Enhanced 64-ray lidar scan (v38.9: use all 64 rays, not truncated to 32)
         world_bounds = (-25.0, 25.0, -25.0, 25.0)
         lidar_ranges = self.lidar.scan(
             robot_pose=np.array([x, y, yaw]),
@@ -235,15 +243,8 @@ class ParkingEnv(gym.Env):
             dynamic_obstacles=None,
         )
 
-        # Force lidar to fixed 32-length vector
-        MAX_LIDAR = 32
+        # v38.9: Use all 64 rays from lidar (no truncation)
         lidar = np.asarray(lidar_ranges, dtype=np.float32)
-        if lidar.shape[0] < MAX_LIDAR:
-            padded = np.zeros(MAX_LIDAR, dtype=np.float32)
-            padded[: lidar.shape[0]] = lidar
-            lidar = padded
-        else:
-            lidar = lidar[:MAX_LIDAR]
 
         obs = np.array(
             [local_x, local_y, yaw_err, v, dist, *lidar],
@@ -276,6 +277,12 @@ class ParkingEnv(gym.Env):
             self.road_center_y = 10.0  # H-bay horizontal road
             self.road_center_x = 0.0   # V-bay vertical road
             self.road_orientation = "mixed"
+        
+        # v38.9: Reinitialize OccupiedBayManager for new lot
+        self.occupied_manager = OccupiedBayManager(
+            all_bays=self.bays,
+            occupancy_rate=0.3,
+        )
 
     def _reset_with_curriculum_spawn(self, seed, options, bay_id):
         """Curriculum-based spawn logic when max_spawn_dist_override is set."""
@@ -283,35 +290,101 @@ class ParkingEnv(gym.Env):
         self.current_tol_pos = 0.5
         self.current_tol_yaw = 0.5
 
-        # Determine road geometry
-        road_y = 0.0
-        road_x = 0.0
-        is_horizontal = True
-
-        if self.lot_name == "lot_b":
-            if self.goal_bay["id"].upper().startswith("H"):
-                road_y = 10.0
-            else:
-                road_x = 0.0
-                is_horizontal = False
-
-        max_dist = self.max_spawn_dist_override if self.max_spawn_dist_override else 20.0
-        dist = self.random_state.uniform(2.0, max_dist)
-        direction = self.random_state.choice([-1, 1])
+        # ---- v41.2: Read overrides ----
+        aligned = getattr(self, "aligned_spawn_override", False)
+        lateral_offset = getattr(self, "lateral_offset_override", None)
 
         gx = self.goal_bay["x"]
         gy = self.goal_bay["y"]
+        gyaw = self.goal_bay["yaw"]
 
-        if is_horizontal:
-            spawn_x = gx + dist * direction
-            spawn_y = road_y + self.random_state.uniform(-0.5, 0.5)
-            spawn_yaw = 0.0 if direction < 0 else math.pi
+        # v41.3: FIX UnboundLocalError - Determine road geometry upfront
+        is_horizontal = True
+        road_y = 0.0
+        road_x = 0.0
+
+        if self.lot_name == "lot_b":
+            # Heuristic: H-bays have yaw ~ 0 or pi. V-bays ~ +/- pi/2
+            if abs(math.cos(gyaw)) > 0.1: # Horizontal-ish
+                is_horizontal = True
+                road_y = 10.0
+            else:
+                is_horizontal = False
+                road_x = 0.0
+        
+        max_dist = self.max_spawn_dist_override if self.max_spawn_dist_override else 20.0
+        max_dist = min(max_dist, 8.0)
+
+        # ✅ SPECIAL CASE: aligned straight-in spawn (S0/S1 baby stages)
+        if aligned:
+            # Give the car some run-up distance (v41.2: ensure > 3.0m)
+            d_min = 3.0
+            d_max = max(4.0, max_dist)
+            d = self.random_state.uniform(d_min, d_max)
+
+            # Outward normal from bay center toward road (entrance direction)
+            # Bay faces 'gyaw', so entrance is 'gyaw + pi/2'? 
+            # Wait, let's check standard. In lot_a: A bays (y>0) have yaw=0. Entrance is -y direction (facing road at y=0).
+            # No, wait. 
+            # Lot A bays have yaw=0. The bay is drawn from y to y-length. 
+            # Let's trust the geometry:
+            # If A3 is at y=6.85, yaw=0. 
+            # A3 is Top row. Entrance is at bottom of bay.
+            # So from center, we want to move -x or -y?
+            # Standard: bay yaw points "into" the spot? Or "out"?
+            # Looking at drawing code: 
+            # corners = ... @ rotation + center.
+            # entrance is corners[0] to corners[1].
+            # corners[0] = -w/2, -l/2. corners[1] = w/2, -l/2.
+            # So entrance is at local y = -length/2.
+            # So "forward" out of the bay is -y direction (in bay frame).
+            
+            # Vector out of bay (entrance direction) in world frame:
+            # Rotation of (0, -1) -> (sin(yaw), -cos(yaw))
+            nx = math.sin(gyaw)
+            ny = -math.cos(gyaw)
+
+            spawn_x = gx + nx * d
+            spawn_y = gy + ny * d
+
+            # Car faces INTO the bay (toward goal from spawn point along -normal):
+            # Normal vector: (sin(gyaw), -cos(gyaw)) points away from bay
+            # Car direction: (-sin(gyaw), cos(gyaw)) points into bay
+            # yaw = atan2(cos(gyaw), -sin(gyaw)) = gyaw + π/2
+            spawn_yaw = gyaw + math.pi / 2.0
+
+            # Optional lateral offset along bay row (for S1)
+            if lateral_offset is not None:
+                # Tangent vector (right side of bay): (cos(yaw), sin(yaw))
+                tx = math.cos(gyaw)
+                ty = math.sin(gyaw)
+                spawn_x += lateral_offset * tx
+                spawn_y += lateral_offset * ty
+
         else:
-            spawn_x = road_x + self.random_state.uniform(-0.5, 0.5)
-            spawn_y = gy + dist * direction
-            spawn_yaw = math.pi / 2 if direction < 0 else 3 * math.pi / 2
+            # 🔁 Existing road-based logic (using pre-calculated geometry)
+            dist = self.random_state.uniform(2.0, max_dist)
 
-        spawn_yaw += self.random_state.uniform(-0.1, 0.1)
+            if self.spawn_side_override == "left":
+                direction = -1
+            elif self.spawn_side_override == "right":
+                direction = 1
+            else:
+                direction = self.random_state.choice([-1, 1])
+
+            if is_horizontal:
+                spawn_x = gx + dist * direction
+                spawn_y = road_y + self.random_state.uniform(-0.5, 0.5)
+                spawn_yaw = 0.0 if direction < 0 else math.pi
+            else:
+                spawn_x = road_x + self.random_state.uniform(-0.5, 0.5)
+                spawn_y = gy + dist * direction
+                spawn_yaw = math.pi / 2 if direction < 0 else 3 * math.pi / 2
+
+            spawn_yaw += self.random_state.uniform(-0.1, 0.1)
+
+        # Debugging Orientation
+        print(f"[DEBUG_SPAWN] Bay={self.goal_bay.get('id')} Aligned={aligned} H={is_horizontal} GYaw={gyaw:.2f} SpawnYaw={spawn_yaw:.2f}")
 
         # STRICT ROAD CLAMPING (Updated for 4-corner safety)
         # Road half-width = 3.75m. Car half-width = 0.95m. -> Lateral limit +/- 2.0m
@@ -380,6 +453,35 @@ class ParkingEnv(gym.Env):
                 self.goal_bay = self.random_state.choice(self.bays)
         else:
             self.goal_bay = self.random_state.choice(self.bays)
+
+        # v41: Baby Parking Support - Disable Obstacles
+        disable_obstacles = False
+        if options is not None and "disable_obstacles" in options:
+             disable_obstacles = options["disable_obstacles"]
+
+        if disable_obstacles:
+            # Clear all obstacles for C0/C1 stages
+            self.occupied_manager.occupied_bay_ids.clear()
+            self.occupied_manager.occupied_bay_objects.clear()
+            self.occupied_bays = []
+            if self.lot_name == "lot_a":
+                print(f"[ParkingEnv] 🧹 Obstacles DISABLED (Baby Parking)")
+        else:
+            # Regular logic: Randomize occupied bays
+            # v38.9: Randomize occupied bays (parked cars) each episode
+            # Ensures lidar detects parked cars realistically
+            self.occupied_manager.randomize_occupancy()
+            
+            # CRITICAL: Goal bay must NEVER be occupied
+            if self.occupied_manager.is_bay_occupied(self.goal_bay["id"]):
+                self.occupied_manager.occupied_bay_ids.remove(self.goal_bay["id"])
+                self.occupied_manager.occupied_bay_objects = [
+                    b for b in self.occupied_manager.occupied_bay_objects
+                    if b["id"] != self.goal_bay["id"]
+                ]
+            
+            # Update occupied_bays for lidar detection
+            self.occupied_bays = self.occupied_manager.get_all_parked_cars()
 
         goal_x = self.goal_bay["x"]
         goal_y = self.goal_bay["y"]
@@ -585,6 +687,7 @@ class ParkingEnv(gym.Env):
         done = False
         success = False
         collision = False
+        info = {}
 
         v_cmd, steer_cmd = action
 
@@ -609,54 +712,9 @@ class ParkingEnv(gym.Env):
         local_x, local_y, yaw_err, v_obs, dist, *sensors = obs
 
         # ========== REWARD SHAPING ==========
-
-        # Base distance penalty
-        reward = -dist
-
-        # Exponential closeness bonus
-        if dist < 15.0:
-            closeness_bonus = 100.0 * np.exp(-dist / 3.0)
-            reward += closeness_bonus
-
-        # Alignment w.r.t goal center
-        if dist < 10.0:
-            alignment_reward = 5.0 * (1.0 - abs(yaw_err) / np.pi)
-            reward += alignment_reward
-
-        # Heading alignment while moving
-        if abs(v_obs) > 0.1:
-            vel_direction = yaw if v_obs > 0 else self._wrap_angle(yaw + np.pi)
-            goal_direction = math.atan2(
-                self.goal_bay["y"] - y,
-                self.goal_bay["x"] - x,
-            )
-            heading_error = self._wrap_angle(goal_direction - vel_direction)
-            heading_weight = 2.0 if dist < 5.0 else 0.5
-            heading_reward = heading_weight * math.cos(heading_error)
-            reward += heading_reward
-
-        # Final approach: align with bay orientation
-        if dist < 6.0:
-            goal_yaw = self.goal_bay["yaw"]
-            yaw_alignment_error = abs(self._wrap_angle(yaw - goal_yaw))
-            bay_alignment_reward = 50.0 * (1.0 - yaw_alignment_error / np.pi)
-            reward += bay_alignment_reward
-
-        # Time penalty
-        reward -= 0.01
-
-        # Speed limit zones
-        current_speed = abs(v_obs)
-        if dist < 2.0:
-            speed_limit = self.speed_limit_final
-        elif dist < 5.0:
-            speed_limit = self.speed_limit_near_bay
-        else:
-            speed_limit = self.speed_limit_general
-
-        if current_speed > speed_limit:
-            speed_violation = current_speed - speed_limit
-            reward -= 5.0 * speed_violation
+        
+        # Initialize base reward (e.g. small time penalty)
+        reward = -0.01
 
         # Smoothness penalty
         steering_change = abs(delta - self.last_steering)
@@ -664,57 +722,12 @@ class ParkingEnv(gym.Env):
             reward -= 0.1 * steering_change
         self.last_steering = delta
 
-        # Road compliance (only when not in final maneuver)
-        if dist > 3.0:
-            if self.lot_name == "lot_b" and self.goal_bay is not None:
-                bay_id = str(self.goal_bay.get("id", "")).upper()
-                if bay_id.startswith("H"):
-                    deviation_from_road = abs(y - 10.0)
-                elif bay_id.startswith("V"):
-                    deviation_from_road = abs(x - 0.0)
-                else:
-                    deviation_from_road = abs(y - self.road_center_y)
-            else:
-                deviation_from_road = abs(y - self.road_center_y)
+        # v41.2: Removed duplicate shaping rewards (alignment, road compliance, near-miss)
+        # to ensure WaypointEnv is the single source of truth for reward shaping.
+        # Only base functionality (collision check, OOB) remains here.
 
-            if deviation_from_road < self.road_width / 2.0:
-                on_road_bonus = 2.0 * (
-                    1.0 - deviation_from_road / (self.road_width / 2.0)
-                )
-                reward += on_road_bonus
-            else:
-                off_road_dist = deviation_from_road - (self.road_width / 2.0)
-                reward -= 10.0 * off_road_dist
-                if off_road_dist > 8.0:
-                    reward -= 50.0
-                    collision = True
-                    done = True
-
-        # Wrong bay penalty
-        for bay in self.bays:
-            if bay["id"] == self.goal_bay["id"]:
-                continue
-
-            dx_bay = x - bay["x"]
-            dy_bay = y - bay["y"]
-
-            cos_b = math.cos(-bay["yaw"])
-            sin_b = math.sin(-bay["yaw"])
-            local_x_bay = cos_b * dx_bay - sin_b * dy_bay
-            local_y_bay = sin_b * dx_bay + cos_b * dy_bay
-
-            if (
-                abs(local_x_bay) < self.bay_width / 2.0 - 0.2
-                and abs(local_y_bay) < self.bay_length / 2.0 - 0.2
-            ):
-                reward -= 10.0
-                break
-
-        # Soft wall penalty via sensors
-        if sensors:
-            min_sensor = min(sensors)
-            if min_sensor < 0.5:
-                reward -= 2.0
+        # v41.2: Removed redundant road compliance and wrong-bay penalties.
+        # Strict OOB (25m) and OBB collision checks are handled below.
 
         # Track minimum distance
         if hasattr(self, "min_dist_to_goal"):
@@ -738,30 +751,40 @@ class ParkingEnv(gym.Env):
             cx_bay = cos_g * dx_c - sin_g * dy_c
             cy_bay = sin_g * dx_c + cos_g * dy_c
 
-            tolerance_x = self.current_tol_pos
-            tolerance_y = self.current_tol_pos
-            current_yaw_tol = self.current_tol_yaw
+            # v41: STRICT SUCCESS CRITERIA
+            # 1. Position Error < 0.2m (Lateral/Longitudinal in bay frame)
+            # 2. Yaw Error < 0.1 rad (approx 6 deg)
+            # 3. Speed < 0.1 m/s (Stopped)
+            
+            strict_tol_pos = 0.2
+            strict_tol_yaw = 0.1
+            strict_tol_speed = 0.1 # m/s
+            
+            lateral_error = abs(cx_bay)
+            long_error = abs(cy_bay)
+            heading_error = abs(yaw_err)
+            speed_error = abs(self.state[3])
+            
+            is_centered = lateral_error < strict_tol_pos and long_error < strict_tol_pos
+            is_aligned = heading_error < strict_tol_yaw
+            is_stopped = speed_error < strict_tol_speed
 
-            if (
-                abs(cx_bay) < tolerance_x
-                and abs(cy_bay) < tolerance_y
-                and abs(yaw_err) < current_yaw_tol
-            ):
-                reward += 500.0
+            if is_centered and is_aligned and is_stopped:
+                # v41.3: strict success reward moved to WaypointEnv to avoid double-counting
+                # reward += 100.0 
                 done = True
                 success = True
                 if self.debug:
                     print(
-                        f"✓ PARKING SUCCESS! dist={dist:.2f}, "
-                        f"cx={cx_bay:.2f}, cy={cy_bay:.2f}, yaw_err={yaw_err:.2f}"
+                        f"✓ STRICT SUCCESS! lat={lateral_error:.2f}, long={long_error:.2f}, "
+                        f"yaw={heading_error:.2f}, v={speed_error:.2f}"
                     )
 
-            elif dist < 1.5 and self.steps % 10 == 0:
-                if self.debug: 
+            elif dist < 1.0 and self.steps % 10 == 0:
+                if self.debug:
                     print(
-                        "DEBUG: Close but fail - "
-                        f"cx={cx_bay:.2f}, cy={cy_bay:.2f}, yaw_err={yaw_err:.2f} "
-                        f"(Req: <{tolerance_x}, <{tolerance_y}, <{current_yaw_tol})"
+                        f"DEBUG: Close - lat={lateral_error:.2f}, long={long_error:.2f}, "
+                        f"yaw={heading_error:.2f}, v={speed_error:.2f}"
                     )
 
         # Out-of-bounds
@@ -770,20 +793,29 @@ class ParkingEnv(gym.Env):
             done = True
             collision = True
 
-        # Timeout
+        # Timeout (v41: use truncated, not terminated, for Gymnasium semantics)
+        truncated = False
         if self.steps >= self.max_steps:
-            done = True
+            truncated = True
 
-        info = {
+        info.update({
             "success": success,
             "collision": collision,
             "dist": dist,
             "yaw_err": yaw_err,
             "steps": self.steps,
-        }
-
-        terminated = done
-        truncated = False
+        })
+        # v40: Check physical collision with parked cars
+        is_collision = self._check_collision()
+        
+        # Check termination (true terminal states: success, collision, OOB)
+        terminated = done  # Start with existing 'done' status (success/collision/OOB)
+        if is_collision:
+            terminated = True
+            collision = True  # v41: Unify collision flags
+            info["collision"] = True
+            info["crash"] = True
+            reward += self.collision_penalty
 
         return obs, reward, terminated, truncated, info
 
@@ -958,8 +990,10 @@ class ParkingEnv(gym.Env):
             zorder=1,
         )
         self.ax.add_patch(self.goal_patch)
+        self.goal_arrow = None  # v42: Dynamic arrow
 
-        # Car body
+        # Car body - use physics dimensions (set in __init__)
+        # v38.7: FIXED - was overwriting car_length to 4.5, causing physics/render mismatch
         self.car_patch = Rectangle(
             (0, 0),
             self.car_length,
@@ -984,6 +1018,102 @@ class ParkingEnv(gym.Env):
             zorder=4,
         )
         self.ax.add_patch(self.car_front_stripe)
+
+    # ======================= PHYSICS & COLLISION (v40) =======================
+
+    def _check_collision(self) -> bool:
+        """
+        Check if ego car collides with any occupied bay (parked car).
+        Uses OBB (Oriented Bounding Box) Separating Axis Theorem (SAT).
+        """
+        # 1. Get Ego Car OBB
+        x, y, yaw, _ = self.state
+
+        # v41 FIX: Rear-axle → geometric center of the car
+        center_x = x + (self.car_length / 2.0) * math.cos(yaw)
+        center_y = y + (self.car_length / 2.0) * math.sin(yaw)
+
+        ego_bbox = {
+            "x": center_x,
+            "y": center_y,
+            "yaw": yaw,
+            "length": self.car_length,
+            "width": self.car_width,
+        }
+        ego_corners = self._get_obb_corners(ego_bbox)
+        
+        # 2. Check against all occupied bays
+        for bay in self.occupied_bays:
+            parked_corners = self._get_obb_corners(bay)
+            
+            if self._check_obb_intersection(ego_corners, parked_corners):
+                return True
+                
+        return False
+
+    def _get_obb_corners(self, bbox: dict) -> np.ndarray:
+        """Calculate 4 corners of an OBB from center pose and dims."""
+        cx, cy, yaw = bbox['x'], bbox['y'], bbox['yaw']
+        l2 = bbox['length'] / 2.0
+        w2 = bbox['width'] / 2.0
+        
+        c, s = math.cos(yaw), math.sin(yaw)
+        
+        # Rotated relative vectors
+        # FL, FR, RR, RL
+        corners = np.array([
+            [ l2,  w2],
+            [ l2, -w2],
+            [-l2, -w2],
+            [-l2,  w2]
+        ])
+        
+        # Rotate and translate
+        rotated = np.dot(corners, np.array([[c, s], [-s, c]]))
+        return rotated + np.array([cx, cy])
+
+    def _check_obb_intersection(self, corners1: np.ndarray, corners2: np.ndarray) -> bool:
+        """
+        Check intersection using Separating Axis Theorem (SAT).
+        Returns True if overlapping.
+        """
+        # Axes to test: Normals of all edges (2 from box1, 2 from box2)
+        axes = []
+        
+        # Get edges and normals for box1
+        for i in range(4):
+            p1 = corners1[i]
+            p2 = corners1[(i+1)%4]
+            edge = p2 - p1
+            normal = np.array([-edge[1], edge[0]])
+            axes.append(normal / np.linalg.norm(normal))
+            
+        # Get edges and normals for box2 (only need 2 unique axes for rectangle really, but 4 is safe)
+        for i in range(4):
+            p1 = corners2[i]
+            p2 = corners2[(i+1)%4]
+            edge = p2 - p1
+            normal = np.array([-edge[1], edge[0]])
+            axes.append(normal / np.linalg.norm(normal))
+            
+        # SAT Check
+        for axis in axes:
+            if not self._overlap_on_axis(axis, corners1, corners2):
+                return False  # Separating axis found -> No collision
+                
+        return True # No separating axis found -> Collision
+
+    def _overlap_on_axis(self, axis, corners1, corners2) -> bool:
+        """Project corners onto axis and check overlap."""
+        # Project corners1
+        proj1 = np.dot(corners1, axis)
+        min1, max1 = np.min(proj1), np.max(proj1)
+        
+        # Project corners2
+        proj2 = np.dot(corners2, axis)
+        min2, max2 = np.min(proj2), np.max(proj2)
+        
+        return not (max1 < min2 or max2 < min1)
 
     def render(self):
         """Update visualization with current state."""
@@ -1037,6 +1167,67 @@ class ParkingEnv(gym.Env):
             self.goal_patch.set_xy((llx_g, lly_g))
             self.goal_patch.angle = math.degrees(gyaw)
 
+            # v42: Render Goal Orientation Arrow
+            if self.goal_arrow is not None:
+                self.goal_arrow.remove()
+                self.goal_arrow = None
+
+            arrow_len = 2.0
+            dx_a = arrow_len * math.cos(gyaw)
+            dy_a = arrow_len * math.sin(gyaw)
+            
+            # Draw arrow from center
+            self.goal_arrow = Arrow(
+                gx, gy, dx_a, dy_a,
+                width=0.8,
+                color='white',
+                alpha=0.9,
+                zorder=6
+            )
+            self.ax.add_patch(self.goal_arrow)
+
+        # v40: Render Occupied Bays (Parked Cars) as GREY rectangles
+        # Crucial for visual debugging of collisions
+        if hasattr(self, 'occupied_bays'):
+            # Remove old patches if they exist (simple cleanup)
+            # In efficient animate, we'd update them. 
+            # For simplicity in this codebase structure, we might just draw them as patches on the ax.
+            # But render() re-draws/updates patches.
+            
+            # Check if we need to initialize patches pool
+            if not hasattr(self, 'parked_patches'):
+                self.parked_patches = []
+                
+            # Create patches for new occupied bays if count mismatch (simple sync)
+            while len(self.parked_patches) < len(self.occupied_bays):
+                patch = Rectangle(
+                    (0, 0), self.car_length, self.car_width,
+                    linewidth=1.5, edgecolor='darkred', facecolor='#CC4444', alpha=0.85, zorder=5  # v41.1: Red parked cars
+                )
+                self.ax.add_patch(patch)
+                self.parked_patches.append(patch)
+            
+            # Update patches
+            for i, bay in enumerate(self.occupied_bays):
+                patch = self.parked_patches[i]
+                
+                # Setup pose
+                bx, by, byaw = bay['x'], bay['y'], bay['yaw']
+                
+                dx_b = (self.car_length / 2) * math.cos(byaw) - (self.car_width / 2) * math.sin(byaw)
+                dy_b = (self.car_length / 2) * math.sin(byaw) + (self.car_width / 2) * math.cos(byaw)
+                
+                llx_b = bx - dx_b
+                lly_b = by - dy_b
+                
+                patch.set_xy((llx_b, lly_b))
+                patch.angle = math.degrees(byaw)
+                patch.set_visible(True)
+                
+            # Hide unused patches
+            for i in range(len(self.occupied_bays), len(self.parked_patches)):
+                self.parked_patches[i].set_visible(False)
+
         # For Agg / video capture
         self.fig.canvas.draw()
 
@@ -1046,6 +1237,57 @@ class ParkingEnv(gym.Env):
                 plt.pause(0.001)
             except Exception:
                 pass
+    
+    def render_v34_overlays(self):
+        """
+        Render v34 visualization overlays for training videos.
+        Shows: corridor boundaries, 8-point bay reference, waypoint path.
+        
+        This method is called by WaypointEnv after the base render.
+        """
+        if self.ax is None:
+            return
+            
+        # Only render if we have waypoints (WaypointEnv sets this)
+        if not hasattr(self, 'waypoints') or self.waypoints is None or len(self.waypoints) == 0:
+            return
+        
+        try:
+            from ..utils.v34_visualization import (
+                compute_path_tangents,
+                calculate_corridor_boundaries,
+                calculate_8_point_bay_reference
+            )
+            
+            # 1. Draw corridor boundaries (red dashed lines)
+            waypoints_corrected = compute_path_tangents(self.waypoints)
+            left_boundary, right_boundary = calculate_corridor_boundaries(
+                waypoints_corrected, self.goal_bay, corridor_width=3.0
+            )
+            
+            if left_boundary and len(left_boundary) > 0:
+                left_x, left_y = zip(*left_boundary)
+                self.ax.plot(left_x, left_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)
+            
+            if right_boundary and len(right_boundary) > 0:
+                right_x, right_y = zip(*right_boundary)
+                self.ax.plot(right_x, right_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)
+            
+            # 2. Draw 8-point bay reference (cyan dots)
+            bay_points = calculate_8_point_bay_reference(self.goal_bay)
+            if bay_points and len(bay_points) > 0:
+                cyan_x, cyan_y = zip(*bay_points)
+                self.ax.scatter(cyan_x, cyan_y, c='cyan', s=15, zorder=22, 
+                              edgecolors='black', linewidth=0.5, alpha=0.7)
+            
+            # 3. Draw waypoint path (yellow dots)
+            wps = np.array(self.waypoints)
+            self.ax.scatter(wps[:, 0], wps[:, 1], c='yellow', s=20, zorder=20,
+                          edgecolors='black', linewidth=0.5, alpha=0.7)
+        
+        except Exception as e:
+            # Silently fail if v34 visualization fails (don't break training)
+            pass
 
     def close(self):
         """Clean up rendering resources."""

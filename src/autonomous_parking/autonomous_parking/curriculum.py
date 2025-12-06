@@ -1,7 +1,14 @@
 # autonomous_parking/curriculum.py
 """
-v15 Micro-Curriculum for Autonomous Parking
-15-stage progressive learning with anti-catastrophic-forgetting replay
+v42 IMPROVED Micro-Curriculum for Autonomous Parking
+16-stage progressive learning with anti-catastrophic-forgetting replay
+
+Key improvements over v15:
+- Fixed duplicate stage names and overlapping thresholds  
+- Monotonically increasing complexity with strategic spawn reductions
+- Smoother orientation transitions (no catastrophic forgetting)
+- Added generalization test before bay specialization
+- Earlier multi-lot exposure with simpler scenarios
 
 Production-ready implementation with dataclasses, internal tracking,
 and robust stage advancement logic.
@@ -10,7 +17,7 @@ and robust stage advancement logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple, Dict
+from typing import List, Optional, Sequence, Dict
 import math
 import numpy as np
 
@@ -21,16 +28,25 @@ class CurriculumStage:
     name: str
     # Which lot(s): "lot_a", "lot_b", or "both"
     lots: Sequence[str]
+    # When to advance: total env steps
+    advance_at_steps: int
     # Allowed bay IDs (None = filter by orientation only)
     allowed_bays: Optional[Sequence[str]]
     # Allowed goal orientations in radians (None = all)
     allowed_orientations: Optional[Sequence[float]]
     # Max spawn distance to goal in meters (None = env default)
     max_spawn_dist: Optional[float]
-    # When to advance: total env steps
-    advance_at_steps: int
+    # Spawn side: "left" or "right" (None = random)
+    spawn_side: Optional[str]
+
+    # v38.5: Force aligned spawn for straight-in stages
+    aligned_spawn: bool = False
     # Replay probability from earlier stages
     replay_prob: float = 0.0
+    # v41: Baby Parking Support
+    disable_obstacles: bool = False
+    lateral_offset: Optional[float] = None # Lateral offset in meters for aligned spawn
+
     # Optional note
     note: str = ""
 
@@ -102,6 +118,11 @@ class CurriculumManager:
             "allowed_orientations": (list(stage.allowed_orientations) 
                                     if stage.allowed_orientations is not None else None),
             "max_spawn_dist": stage.max_spawn_dist,
+            "spawn_side": stage.spawn_side,
+            "aligned_spawn": stage.aligned_spawn,  # v38.5: Pass flag to env
+            # v41: New fields
+            "disable_obstacles": stage.disable_obstacles,
+            "lateral_offset": stage.lateral_offset,
         }
         return scenario
     
@@ -131,17 +152,17 @@ class CurriculumManager:
         
         stage = self.current_stage
         
-        # Primary: step threshold
+        # 1. Minimum steps requirement (don't advance too fast)
         if self.total_steps < stage.advance_at_steps:
             return
         
-        # Optional: require minimum recent success (loose 5% to avoid stuck)
+        # 2. Success rate requirement (Competence-based)
         success_rate = (sum(self._window_success) / len(self._window_success) 
                        if self._window_success else 0.0)
-        # if success_rate < 0.05:
-        #     return
-        if success_rate < 0.01 and self.total_steps < stage.advance_at_steps * 1.5:
-            return  # Only block if <1% success AND not too far past threshold
+        
+        # Require 80% success to advance (User Request: "Only further if success")
+        if success_rate < 0.80:
+            return
         
         # Advance!
         self.current_stage_idx += 1
@@ -149,7 +170,7 @@ class CurriculumManager:
         print(f"\n{'*' * 70}")
         print(f"📚 CURRICULUM STAGE ADVANCE")
         print(f"   From: {stage.name}")
-        print(f"   To:   {next_stage.name} (Stage {self.current_stage_idx + 1}/15)")
+        print(f"   To:   {next_stage.name} (Stage {self.current_stage_idx + 1}/{len(self.stages)})")
         print(f"   Steps: {self.total_steps:,} | Episodes: {self.total_episodes:,}")
         print(f"   Recent Success: {success_rate:.1%}")
         print(f"   Replay Prob: {next_stage.replay_prob:.0%}")
@@ -168,168 +189,227 @@ class CurriculumManager:
         return np.random.choice(self.current_stage_idx, p=weights)
     
     def _build_stages(self) -> List[CurriculumStage]:
-        """Build 15-stage micro-curriculum"""
+        """
+        v42 IMPROVED Curriculum - Fixes for logical progression issues
+
+        Key improvements over v15:
+        1. Fixed duplicate stage names and overlapping thresholds  
+        2. Monotonically increasing complexity with strategic spawn reductions
+        3. Smoother orientation transitions (no catastrophic forgetting)
+        4. Added generalization test (S4) before bay specialization
+        5. Earlier multi-lot exposure with simpler scenarios (S12)
+        6. More logical bay progression: A2+A3 → A2+A3+A4 → A1-A5 → All
+        """
         
         def rad(deg: float) -> float:
             return math.radians(deg)
         
         stages = [
-            # ===== PHASE 1: SINGLE BAY MASTERY (0-80k) =====
+            # ===== PHASE 0: BABY PARKING (0-40k) =====
             CurriculumStage(
-                name="S1: Single bay, aligned, close",
+                name="S0: Baby - Straight aligned, no obstacles",
                 lots=["lot_a"],
-                allowed_bays=["A1"],
+                allowed_bays=["A2", "A3"],
+                allowed_orientations=[rad(0.0)],
+                max_spawn_dist=6.0,
+                spawn_side=None,
+                aligned_spawn=True,
+                disable_obstacles=True,
+                advance_at_steps=20_000,
+                replay_prob=0.0,
+                note="Learn brake + alignment without distractions"
+            ),
+
+            CurriculumStage(
+                name="S1: Baby - Lateral offset, no obstacles",
+                lots=["lot_a"],
+                allowed_bays=["B3", "B4"],
+                allowed_orientations=[rad(180.0)],
+                max_spawn_dist=6.0,
+                spawn_side=None,
+                aligned_spawn=True,
+                disable_obstacles=True,
+                lateral_offset=1.0,
+                advance_at_steps=40_000,
+                replay_prob=0.1,
+                note="Learn steering correction from 1m offset"
+            ),
+
+            # ===== PHASE 1: SINGLE BAY MASTERY (40-115k) =====
+            CurriculumStage(
+                name="S2: A3 only - Close spawn (4m), obstacles ON",
+                lots=["lot_a"],
+                allowed_bays=["A3"],
+                allowed_orientations=[rad(0.0)],
+                max_spawn_dist=4.0,
+                spawn_side=None,
+                advance_at_steps=70_000,  # 30k steps on this stage
+                replay_prob=0.1,
+                note="Introduce obstacles with easy spawn"
+            ),
+            
+            CurriculumStage(
+                name="S3: A3 only - Medium spawn (8m)",
+                lots=["lot_a"],
+                allowed_bays=["A3"],
+                allowed_orientations=[rad(0.0)],
+                max_spawn_dist=8.0,
+                spawn_side=None,  # Both sides
+                advance_at_steps=95_000,  # 25k steps
+                replay_prob=0.15,
+                note="Extend navigation distance"
+            ),
+            
+            # NEW: Test generalization to nearby bay before specializing elsewhere
+            CurriculumStage(
+                name="S4: A2+A3 - Test generalization (8m)",
+                lots=["lot_a"],
+                allowed_bays=["A2", "A3"],
+                allowed_orientations=[rad(0.0)],
+                max_spawn_dist=8.0,
+                spawn_side=None,
+                advance_at_steps=115_000,  # 20k steps
+                replay_prob=0.2,
+                note="Verify A3 learning transfers to adjacent bay"
+            ),
+            
+            # ===== PHASE 2: MULTI-BAY EXPANSION (115-195k) =====
+            CurriculumStage(
+                name="S5: Three middle bays (A2,A3,A4) - 12m",
+                lots=["lot_a"],
+                allowed_bays=["A2", "A3", "A4"],
                 allowed_orientations=[rad(0.0)],
                 max_spawn_dist=12.0,
-                advance_at_steps=40_000,
-                replay_prob=0.0,
-                note="Warm-up: one aligned bay, nearby spawn"
+                spawn_side=None,
+                advance_at_steps=140_000,  # 25k steps
+                replay_prob=0.25,
+                note="Expand to central cluster"
             ),
             
             CurriculumStage(
-                name="S2: Single bay, aligned, medium",
+                name="S6: Five bays (A1-A5) - 16m",
                 lots=["lot_a"],
-                allowed_bays=["A1"],
+                allowed_bays=["A1", "A2", "A3", "A4", "A5"],
                 allowed_orientations=[rad(0.0)],
-                max_spawn_dist=18.0,
-                advance_at_steps=60_000,
-                replay_prob=0.2
+                max_spawn_dist=16.0,
+                spawn_side=None,
+                advance_at_steps=165_000,  # 25k steps
+                replay_prob=0.3,
+                note="Near-complete bay coverage"
             ),
             
             CurriculumStage(
-                name="S3: Single bay, aligned, far",
+                name="S7: All bays - 20m - Single orientation mastery",
                 lots=["lot_a"],
-                allowed_bays=["A1"],
-                allowed_orientations=[rad(0.0)],
-                max_spawn_dist=24.0,
-                advance_at_steps=80_000,
-                replay_prob=0.25
-            ),
-            
-            # ===== PHASE 2: MULTI-BAY SAME ORIENTATION (80-140k) =====
-            CurriculumStage(
-                name="S4: Two bays, aligned",
-                lots=["lot_a"],
-                allowed_bays=["A1", "A2"],
+                allowed_bays=None,
                 allowed_orientations=[rad(0.0)],
                 max_spawn_dist=20.0,
-                advance_at_steps=100_000,
-                replay_prob=0.3
+                spawn_side=None,
+                advance_at_steps=195_000,  # 30k steps
+                replay_prob=0.3,
+                note="Complete 0° mastery before adding orientations"
+            ),
+            
+            # ===== PHASE 3: ADD PERPENDICULAR (195-260k) =====
+            # FIXED: Keep 0° while introducing 90° to prevent forgetting
+            CurriculumStage(
+                name="S8: 0°+90° mixed - 16m - Dual orientation intro",
+                lots=["lot_a"],
+                allowed_bays=None,
+                allowed_orientations=[rad(0.0), rad(90.0)],
+                max_spawn_dist=16.0,  # Easier spawn when adding complexity
+                spawn_side=None,
+                advance_at_steps=225_000,  # 30k steps
+                replay_prob=0.35,
+                note="Introduce perpendicular while maintaining straight-in"
             ),
             
             CurriculumStage(
-                name="S5: Three bays, aligned",
+                name="S9: 0°+90° mixed - 22m - Extended dual practice",
                 lots=["lot_a"],
-                allowed_bays=["A1", "A2", "A3"],
-                allowed_orientations=[rad(0.0)],
+                allowed_bays=None,
+                allowed_orientations=[rad(0.0), rad(90.0)],
                 max_spawn_dist=22.0,
-                advance_at_steps=120_000,
-                replay_prob=0.3
+                spawn_side=None,
+                advance_at_steps=260_000,  # 35k steps
+                replay_prob=0.4,
+                note="Solidify two-orientation competence"
             ),
             
+            # ===== PHASE 4: ADD REVERSE ORIENTATIONS (260-345k) =====
             CurriculumStage(
-                name="S6: All bays, single orientation",
-                lots=["lot_a"],
-                allowed_bays=None,
-                allowed_orientations=[rad(0.0)],
-                max_spawn_dist=24.0,
-                advance_at_steps=140_000,
-                replay_prob=0.35
-            ),
-            
-            # ===== PHASE 3: ADD PERPENDICULAR (140-230k) =====
-            CurriculumStage(
-                name="S7: Perpendicular only",
-                lots=["lot_a"],
-                allowed_bays=None,
-                allowed_orientations=[rad(90.0)],
-                max_spawn_dist=18.0,
-                advance_at_steps=170_000,
-                replay_prob=0.4
-            ),
-            
-            CurriculumStage(
-                name="S8: Two orientations, easy",
-                lots=["lot_a"],
-                allowed_bays=None,
-                allowed_orientations=[rad(0.0), rad(90.0)],
-                max_spawn_dist=20.0,
-                advance_at_steps=200_000,
-                replay_prob=0.4
-            ),
-            
-            CurriculumStage(
-                name="S9: Two orientations, full",
-                lots=["lot_a"],
-                allowed_bays=None,
-                allowed_orientations=[rad(0.0), rad(90.0)],
-                max_spawn_dist=26.0,
-                advance_at_steps=230_000,
-                replay_prob=0.45
-            ),
-            
-            # ===== PHASE 4: ALL 4 ORIENTATIONS (230-370k) =====
-            CurriculumStage(
-                name="S10: Three orientations",
+                name="S10: Three orientations (0°,90°,180°) - 20m",
                 lots=["lot_a"],
                 allowed_bays=None,
                 allowed_orientations=[rad(0.0), rad(90.0), rad(180.0)],
-                max_spawn_dist=24.0,
-                advance_at_steps=280_000,
-                replay_prob=0.5
+                max_spawn_dist=20.0,  # Slightly easier when adding 3rd orientation
+                spawn_side=None,
+                advance_at_steps=300_000,  # 40k steps
+                replay_prob=0.45,
+                note="Add reverse orientation"
             ),
             
             CurriculumStage(
-                name="S11: Four orientations, close",
+                name="S11: All four orientations - 22m",
                 lots=["lot_a"],
                 allowed_bays=None,
                 allowed_orientations=[rad(0.0), rad(90.0), rad(180.0), rad(-90.0)],
                 max_spawn_dist=22.0,
-                advance_at_steps=320_000,
-                replay_prob=0.5
+                spawn_side=None,
+                advance_at_steps=345_000,  # 45k steps
+                replay_prob=0.5,
+                note="Complete orientation coverage"
             ),
             
+            # ===== PHASE 5: MULTI-LOT INTRODUCTION (345-445k) =====
+            # IMPROVED: Introduce Lot B earlier with simpler orientations
             CurriculumStage(
-                name="S12: Four orientations, far",
-                lots=["lot_a"],
-                allowed_bays=None,
-                allowed_orientations=None,  # All orientations
-                max_spawn_dist=28.0,
-                advance_at_steps=370_000,
-                replay_prob=0.5
-            ),
-            
-            # ===== PHASE 5: MULTI-LOT (370-500k) =====
-            CurriculumStage(
-                name="S13: Lot B intro",
+                name="S12: Lot B only - 0°+90° - 18m - New environment",
                 lots=["lot_b"],
                 allowed_bays=None,
                 allowed_orientations=[rad(0.0), rad(90.0)],
-                max_spawn_dist=20.0,
-                advance_at_steps=420_000,
-                replay_prob=0.6
+                max_spawn_dist=18.0,
+                spawn_side=None,
+                advance_at_steps=385_000,  # 40k steps
+                replay_prob=0.55,
+                note="Transfer to new lot with familiar orientations"
             ),
             
             CurriculumStage(
-                name="S14: Mixed lots, medium",
+                name="S13: Both lots - All orientations - 24m",
                 lots=["both"],
                 allowed_bays=None,
                 allowed_orientations=None,
-                max_spawn_dist=26.0,
-                advance_at_steps=480_000,
-                replay_prob=0.6
+                max_spawn_dist=24.0,
+                spawn_side=None,
+                advance_at_steps=445_000,  # 60k steps
+                replay_prob=0.6,
+                note="Multi-lot integration"
             ),
             
-            # ===== PHASE 6: FINAL MASTERY (480k+) =====
+            # ===== PHASE 6: FINAL MASTERY (445k+) =====
             CurriculumStage(
-                name="S15: Full deployment regime",
+                name="S14: Full deployment - 28m - Final stretch",
                 lots=["both"],
                 allowed_bays=None,
                 allowed_orientations=None,
-                max_spawn_dist=None,  # No limit
-                advance_at_steps=10**9,  # No auto-advance
+                max_spawn_dist=28.0,
+                spawn_side=None,
+                advance_at_steps=500_000,  # 55k steps
+                replay_prob=0.65,
+                note="Near-production challenge level"
+            ),
+            
+            CurriculumStage(
+                name="S15: Production distribution - No limits",
+                lots=["both"],
+                allowed_bays=None,
+                allowed_orientations=None,
+                max_spawn_dist=None,
+                spawn_side=None,
+                advance_at_steps=10**9,
                 replay_prob=0.7,
-                note="Production distribution"
+                note="Full deployment regime"
             ),
         ]
         
@@ -341,6 +421,6 @@ class CurriculumManager:
         success_rate = (sum(self._window_success) / len(self._window_success) 
                        if self._window_success else 0.0)
         
-        print(f"Curriculum: Stage {self.current_stage_idx + 1}/15 - {stage.name}")
+        print(f"Curriculum: Stage {self.current_stage_idx + 1}/{len(self.stages)} - {stage.name}")
         print(f"  Steps: {self.total_steps:,} | Episodes: {self.total_episodes:,}")
         print(f"  Success: {success_rate:.1%} | Replay: {stage.replay_prob:.0%}")

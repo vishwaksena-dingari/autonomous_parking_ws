@@ -10,6 +10,7 @@ Handles which parking bays contain parked cars, supporting:
 """
 
 import random
+import math  # v40 FIX: Needed for pi/2 rotation
 from typing import List, Dict, Optional
 
 
@@ -103,7 +104,7 @@ class OccupiedBayManager:
         return {
             'x': bay['x'],
             'y': bay['y'],
-            'yaw': bay['yaw'],
+            'yaw': bay['yaw'] + (math.pi / 2), # v40 FIX: Bays are Vertical at 0, Cars are Horizontal at 0. Add 90 deg.
             'length': 4.2,  # m (compact car)
             'width': 1.9    # m
         }
