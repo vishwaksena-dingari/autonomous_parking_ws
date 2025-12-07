@@ -89,22 +89,33 @@ class WaypointRewardCalculator:
         # Base penalty: distance to waypoint (SCALED: was -0.2)
         reward += -0.002 * dist_to_waypoint
         
-        # Progress reward: getting closer to waypoint (v38.5: INCREASED 5x, was 0.02)
+        # # Progress reward: getting closer to waypoint (v38.5: INCREASED 5x, was 0.02)
+        # if prev_dist_to_waypoint is not None:
+        #     progress = prev_dist_to_waypoint - dist_to_waypoint
+        #     reward += 0.1 * progress
         if prev_dist_to_waypoint is not None:
             progress = prev_dist_to_waypoint - dist_to_waypoint
-            reward += 0.1 * progress
+            if progress > 0 and velocity > 0.1:
+                reward += 0.1 * progress
         
         # v28: PATH-FOLLOWING reward (replaces generic forward velocity)
         # Reward velocity component ALONG the path to waypoint, not just "forward"
         # This encourages following the path shape, not just driving straight
-        if prev_dist_to_waypoint is not None and dist_to_waypoint > 0.01:
-            # Calculate path-aligned velocity component
-            # If moving towards waypoint: positive reward
-            # If moving away: negative reward (implicit via progress term above)
-            path_velocity = (prev_dist_to_waypoint - dist_to_waypoint) / 0.1  # dt = 0.1s
-            if path_velocity > 0.1:  # Moving towards waypoint
-                reward += self.velocity_reward_weight * min(path_velocity, 2.0)
+        # if prev_dist_to_waypoint is not None and dist_to_waypoint > 0.01:
+        #     # Calculate path-aligned velocity component
+        #     # If moving towards waypoint: positive reward
+        #     # If moving away: negative reward (implicit via progress term above)
+        #     path_velocity = (prev_dist_to_waypoint - dist_to_waypoint) / 0.1  # dt = 0.1s
+        #     if path_velocity > 0.1:  # Moving towards waypoint
+        #         reward += self.velocity_reward_weight * min(path_velocity, 2.0)
         
+        if prev_dist_to_waypoint is not None and dist_to_waypoint > 0.01:
+            path_velocity = (prev_dist_to_waypoint - dist_to_waypoint) / 0.1
+            if path_velocity > 0.1 and velocity > 0.1:
+                reward += self.velocity_reward_weight * min(path_velocity, 2.0)
+            elif path_velocity > 0.1 and velocity < -0.1:
+                reward -= 1.0
+
         # FIX: Only penalize low SPEED when FAR from goal (> 3.0m)
         if abs(velocity) < 0.2 and dist_to_goal > 3.0:
             reward -= self.low_velocity_penalty
@@ -123,9 +134,18 @@ class WaypointRewardCalculator:
         # v38.7: Anti-freeze penalty (balanced scale)
         # Penalty for not moving when far from goal
         # v38.9 FIX: Use configurable self.anti_freeze_penalty instead of hardcoded 0.02
-        if dist_to_goal > 3.0 and velocity < 0.3:
-            reward -= self.anti_freeze_penalty  # Small but consistent push to move
+        # if dist_to_goal > 3.0 and velocity < 0.3:
+        #     reward -= self.anti_freeze_penalty  # Small but consistent push to move
+        if dist_to_goal > 3.0 and abs(velocity) < 0.3:
+            reward -= self.anti_freeze_penalty
         
+        # v42: BACKWARD MOTION PENALTY (CRITICAL FIX)
+        if velocity < -0.1:
+            backward_penalty = -2.0 * abs(velocity)
+            reward += backward_penalty
+        elif velocity < 0.0:
+            reward -= 0.5
+
         return reward
     
     def calculate_path_deviation_penalty(

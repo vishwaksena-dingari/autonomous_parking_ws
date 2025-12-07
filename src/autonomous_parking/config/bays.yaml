@@ -4,44 +4,41 @@ lot_a:
     y: 0.0
     yaw: 0.0
   bays:
-    # Top row (A1..A6) — facing south (down) toward the main lane
-    - {id: A1, x: -4.15, y:  6.5, yaw: 0.0}
-    - {id: A2, x: -1.45, y:  6.5, yaw: 0.0}
-    - {id: A3, x:  1.25, y:  6.5, yaw: 0.0}
-    - {id: A4, x:  3.95, y:  6.5, yaw: 0.0}
-    - {id: A5, x:  6.65, y:  6.5, yaw: 0.0}
-    - {id: A6, x:  9.35, y:  6.5, yaw: 0.0}
-    # Bottom row (B1..B6) — facing north (up) toward the main lane
-    - {id: B1, x: -4.15, y: -6.5, yaw: 3.14159}
-    - {id: B2, x: -1.45, y: -6.5, yaw: 3.14159}
-    - {id: B3, x:  1.25, y: -6.5, yaw: 3.14159}
-    - {id: B4, x:  3.95, y: -6.5, yaw: 3.14159}
-    - {id: B5, x:  6.65, y: -6.5, yaw: 3.14159}
-    - {id: B6, x:  9.35, y: -6.5, yaw: 3.14159}
+    # Top row (A1..A6) — CAR FACES NORTH (away from road)
+    - {id: A1, x: -4.15, y:  6.5, yaw: 1.5708}
+    - {id: A2, x: -1.45, y:  6.5, yaw: 1.5708}
+    - {id: A3, x:  1.25, y:  6.5, yaw: 1.5708}
+    - {id: A4, x:  3.95, y:  6.5, yaw: 1.5708}
+    - {id: A5, x:  6.65, y:  6.5, yaw: 1.5708}
+    - {id: A6, x:  9.35, y:  6.5, yaw: 1.5708}
+    # Bottom row (B1..B6) — CAR FACES SOUTH (away from road)
+    - {id: B1, x: -4.15, y: -6.5, yaw: -1.5708}
+    - {id: B2, x: -1.45, y: -6.5, yaw: -1.5708}
+    - {id: B3, x:  1.25, y: -6.5, yaw: -1.5708}
+    - {id: B4, x:  3.95, y: -6.5, yaw: -1.5708}
+    - {id: B5, x:  6.65, y: -6.5, yaw: -1.5708}
+    - {id: B6, x:  9.35, y: -6.5, yaw: -1.5708}
   roads:
-    # Horizontal road centered at y=0, width 7.5m, length 50m
     - {x: 0.0, y: 0.0, length: 50.0, width: 7.5, yaw: 0.0}
 
 lot_b:
   entrance:
     x: 0.0
     y: -18.0
-    yaw: 1.5708      # facing north (+Y) along the vertical road
+    yaw: 1.5708
   bays:
-    # Horizontal leg (H1..H5) — above the east-west road, facing south
-    - {id: H1, x: -5.4, y: 17.5, yaw: 0.0}
-    - {id: H2, x: -2.7, y: 17.5, yaw: 0.0}
-    - {id: H3, x:  0.0, y: 17.5, yaw: 0.0}
-    - {id: H4, x:  2.7, y: 17.5, yaw: 0.0}
-    - {id: H5, x:  5.4, y: 17.5, yaw: 0.0}
-    # Vertical leg (V1..V5) — left of the north-south road, facing east
-    - {id: V1, x: -7.5, y: -10.2, yaw: 1.5708}
-    - {id: V2, x: -7.5, y:  -6.6, yaw: 1.5708}
-    - {id: V3, x: -7.5, y:  -3.0, yaw: 1.5708}
-    - {id: V4, x: -7.5, y:   0.6, yaw: 1.5708}
-    - {id: V5, x: -7.5, y:   4.2, yaw: 1.5708}
+    # Horizontal (H1..H5) — CAR FACES NORTH (away from road at y=10)
+    - {id: H1, x: -5.4, y: 17.5, yaw: 1.5708}
+    - {id: H2, x: -2.7, y: 17.5, yaw: 1.5708}
+    - {id: H3, x:  0.0, y: 17.5, yaw: 1.5708}
+    - {id: H4, x:  2.7, y: 17.5, yaw: 1.5708}
+    - {id: H5, x:  5.4, y: 17.5, yaw: 1.5708}
+    # Vertical (V1..V5) — CAR FACES WEST (away from road at x=0)
+    - {id: V1, x: -7.5, y: -10.2, yaw: 3.14159}
+    - {id: V2, x: -7.5, y:  -6.6, yaw: 3.14159}
+    - {id: V3, x: -7.5, y:  -3.0, yaw: 3.14159}
+    - {id: V4, x: -7.5, y:   0.6, yaw: 3.14159}
+    - {id: V5, x: -7.5, y:   4.2, yaw: 3.14159}
   roads:
-    # Vertical road: x=0, y=-7.5 (center of -25 to 10), length 35m, width 7.5m
     - {x: 0.0, y: -7.5, length: 35.0, width: 7.5, yaw: 1.5708}
-    # Horizontal road: y=10, x=0, length 50m, width 7.5m
     - {x: 0.0, y: 10.0, length: 50.0, width: 7.5, yaw: 0.0}

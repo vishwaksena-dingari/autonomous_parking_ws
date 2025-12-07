@@ -267,7 +267,7 @@ class WaypointEnv(ParkingEnv):
         obs, info = super().reset(seed=seed, options=options, bay_id=bay_id)
 
         self.goal_x = self.goal_bay["x"]
-        self.goal_y = self.goal_bay["y"]
+        self.goal_y = self.goal_bay["y"]  
         self.goal_yaw = self.goal_bay["yaw"]
 
         # v41.3: DISABLED - ParkingEnv now handles aligned spawn correctly via _reset_with_curriculum_spawn
@@ -388,51 +388,113 @@ class WaypointEnv(ParkingEnv):
             #    start -> forward_wp -> A* path -> (later) entrance/pregoal/goal
             road_path = [start] + road_path
 
+            # # ----- Generate Guidance Waypoints (Entrance -> Deep Bay) -----
+            # # Assuming goal_yaw points INTO the bay (towards back wall) based on dist_entrance logic
+            # # -y is OUT (aisle), +y is IN (deep bay)
+            
+            # guidance_points = []
+            
+            # # 1. Entrance Line (Start of bay)
+            # # Bay length 5.5m -> Half length 2.75m
+            # # Entrance is at -2.75m relative to center
+            # guidance_points.append({"name": "entrance", "dist": 2.75})
+            
+            # # 2. Mid-Approach (Halfway to center)
+            # # Helps smooth the transition from entrance to goal
+            # guidance_points.append({"name": "mid_bay", "dist": 1.4})
+            
+            # # 3. Goal (Center)
+            # guidance_points.append({"name": "goal", "dist": 0.0})
+            
+            # # 4. Deep Target (3/4th depth) - REQUESTED BY USER
+            # # Pulls the agent fully into the bay.
+            # # 3/4th of 5.5m from entrance = 4.125m travel
+            # # Start at -2.75 -> End at -2.75 + 4.125 = +1.375m
+            # guidance_points.append({"name": "deep_target", "dist": -1.375})
+            
+            # final_waypoints = []
+            # cos_yaw = np.cos(self.goal_yaw)
+            # sin_yaw = np.sin(self.goal_yaw)
+            
+            # for pt in guidance_points:
+            #     # Note: dist is "distance from goal OUTWARDS". 
+            #     # So local_y = -dist.
+            #     d = pt["dist"]
+            #     local_x, local_y = 0.0, -d
+                
+            #     wx = self.goal_x + (cos_yaw * local_x - sin_yaw * local_y)
+            #     wy = self.goal_y + (sin_yaw * local_x + cos_yaw * local_y)
+                
+            #     # CRITICAL FIX: Don't set heading yet - will be computed from path tangents
+            #     # This prevents entrance waypoints from pointing INTO the bay prematurely
+            #     wh = 0.0  # Placeholder, will be recomputed
+                
+            #     final_waypoints.append((wx, wy, wh))
+
+            # # Combine: Road Path -> Guidance Waypoints
+            # full_path = road_path + final_waypoints
+
             # ----- Generate Guidance Waypoints (Entrance -> Deep Bay) -----
-            # Assuming goal_yaw points INTO the bay (towards back wall) based on dist_entrance logic
-            # -y is OUT (aisle), +y is IN (deep bay)
+            # v42 FIX: Adjusted for new yaw convention with smoother transitions
             
-            guidance_points = []
-            
-            # 1. Entrance Line (Start of bay)
-            # Bay length 5.5m -> Half length 2.75m
-            # Entrance is at -2.75m relative to center
-            guidance_points.append({"name": "entrance", "dist": 2.75})
-            
-            # 2. Mid-Approach (Halfway to center)
-            # Helps smooth the transition from entrance to goal
-            guidance_points.append({"name": "mid_bay", "dist": 1.4})
-            
-            # 3. Goal (Center)
-            guidance_points.append({"name": "goal", "dist": 0.0})
-            
-            # 4. Deep Target (3/4th depth) - REQUESTED BY USER
-            # Pulls the agent fully into the bay.
-            # 3/4th of 5.5m from entrance = 4.125m travel
-            # Start at -2.75 -> End at -2.75 + 4.125 = +1.375m
-            guidance_points.append({"name": "deep_target", "dist": -1.375})
+            guidance_points = [
+                {"name": "pre_entrance", "dist": 3.25},  # 0.5m before bay entrance
+                {"name": "entrance", "dist": 2.75},      # Bay entrance line
+                {"name": "quarter", "dist": 1.375},      # 1/4 depth into bay
+                {"name": "goal", "dist": 0.0},           # Bay center (parking target)
+                {"name": "deep", "dist": -1.375},        # 3/4 depth (final settle)
+            ]
             
             final_waypoints = []
             cos_yaw = np.cos(self.goal_yaw)
             sin_yaw = np.sin(self.goal_yaw)
             
             for pt in guidance_points:
-                # Note: dist is "distance from goal OUTWARDS". 
-                # So local_y = -dist.
                 d = pt["dist"]
-                local_x, local_y = 0.0, -d
+                # v42 FIX: Distance along forward axis (local -X is toward entrance)
+                local_x, local_y = -d, 0.0  # SWAPPED from (0.0, -d)
                 
+                # Transform to world frame
                 wx = self.goal_x + (cos_yaw * local_x - sin_yaw * local_y)
                 wy = self.goal_y + (sin_yaw * local_x + cos_yaw * local_y)
-                
-                # CRITICAL FIX: Don't set heading yet - will be computed from path tangents
-                # This prevents entrance waypoints from pointing INTO the bay prematurely
-                wh = 0.0  # Placeholder, will be recomputed
+                wh = 0.0  # Placeholder, will be computed from path tangents
                 
                 final_waypoints.append((wx, wy, wh))
 
-            # Combine: Road Path -> Guidance Waypoints
-            full_path = road_path + final_waypoints
+            # # v42 FIX: Add transition waypoint to prevent shortcutting
+            # if len(final_waypoints) > 0:
+            #     staging_x, staging_y, staging_yaw = road_path[-1]
+            #     entrance_x, entrance_y, _ = final_waypoints[0]
+                
+            #     # Midpoint between staging (on road) and pre-entrance
+            #     mid_x = (staging_x + entrance_x) / 2.0
+            #     mid_y = (staging_y + entrance_y) / 2.0
+            #     mid_yaw = staging_yaw
+                
+            #     full_path = road_path + [(mid_x, mid_y, mid_yaw)] + final_waypoints
+            # else:
+            #     full_path = road_path + final_waypoints
+
+            # 🔧 v46 FIX: Add MORE transition waypoints for smoother connection
+            # This ensures A* path connects smoothly to bay entrance
+            if len(final_waypoints) > 0:
+                staging_x, staging_y, staging_yaw = road_path[-1]
+                entrance_x, entrance_y, _ = final_waypoints[0]
+                
+                # 🔧 NEW: Add 2 intermediate waypoints instead of 1
+                # This creates a smoother transition arc from road to bay
+                # Using interpolation at 1/3 and 2/3 along the path
+                transition_wps = []
+                for t in [0.33, 0.67]:
+                    trans_x = staging_x + (entrance_x - staging_x) * t
+                    trans_y = staging_y + (entrance_y - staging_y) * t
+                    # Gradually transition orientation from staging to entrance
+                    trans_yaw = staging_yaw  # Keep staging orientation for smoother curve
+                    transition_wps.append((trans_x, trans_y, trans_yaw))
+                
+                full_path = road_path + transition_wps + final_waypoints
+            else:
+                full_path = road_path + final_waypoints
             
             # CRITICAL FIX: Recompute orientations from path tangents
             # This ensures waypoints follow the actual path direction, not goal_yaw
@@ -455,6 +517,19 @@ class WaypointEnv(ParkingEnv):
             
             # v17: Intelligently subsample for RL agent
             self.waypoints = self._smart_subsample(smooth_dense)
+            
+            # 🔧 v46 DEBUG: Verify waypoints reach goal
+            if self.verbose:
+                last_wp_x, last_wp_y, last_wp_yaw = self.waypoints[-1]
+                dist_to_goal = np.hypot(last_wp_x - self.goal_x, last_wp_y - self.goal_y)
+                yaw_error = abs(self._wrap_angle(last_wp_yaw - self.goal_yaw))
+                print(f"[FIX CHECK] Waypoints: {len(self.waypoints)}, "
+                      f"Last→Goal: {dist_to_goal:.3f}m, "
+                      f"Yaw error: {np.degrees(yaw_error):.1f}°")
+                if dist_to_goal > 0.5:
+                    print(f"  ⚠️  WARNING: Last waypoint too far from goal!")
+                else:
+                    print(f"  ✅ PASS: Waypoints reach goal properly")
 
             # v17: Calculate path length and reward scaling
             self.total_path_length = sum(
@@ -536,27 +611,81 @@ class WaypointEnv(ParkingEnv):
     #     selected.append(dense_path[-1])
     #     return selected
     
+    # def _smart_subsample(self, dense_path, min_spacing=1.2, max_waypoints=24):
+    #     """
+    #     Keep important waypoints (turns), remove redundant ones (straights).
+
+    #     Tweaks:
+    #     - Always keep the first TWO points (start + straight launch).
+    #     - Slightly lower min_spacing so early bends get at least one waypoint.
+    #     - Fewer total waypoints than the dense spline, but more than just 4–5
+    #       so the curve looks smoother.
+    #     """
+    #     if len(dense_path) <= 3:
+    #         return dense_path
+
+    #     selected = [dense_path[0]]
+
+    #     for i in range(1, len(dense_path) - 1):
+    #         # Always keep the 2nd point (the launch waypoint)
+    #         if i == 1:
+    #             selected.append(dense_path[i])
+    #             continue
+
+    #         angle = self._calculate_turn_angle(
+    #             dense_path[i - 1], dense_path[i], dense_path[i + 1]
+    #         )
+
+    #         dist = np.linalg.norm([
+    #             dense_path[i][0] - selected[-1][0],
+    #             dense_path[i][1] - selected[-1][1],
+    #         ])
+
+    #         # Keep if sharp turn (>15°) or we've moved far enough
+    #         if angle > np.radians(15) or dist >= min_spacing:
+    #             selected.append(dense_path[i])
+
+    #         if len(selected) >= max_waypoints - 1:
+    #             break
+
+    #     # Always end exactly at the last point (goal)
+    #     selected.append(dense_path[-1])
+    #     return selected
+
     def _smart_subsample(self, dense_path, min_spacing=1.2, max_waypoints=24):
         """
         Keep important waypoints (turns), remove redundant ones (straights).
-
-        Tweaks:
-        - Always keep the first TWO points (start + straight launch).
-        - Slightly lower min_spacing so early bends get at least one waypoint.
-        - Fewer total waypoints than the dense spline, but more than just 4–5
-          so the curve looks smoother.
+        
+        🔧 FIX v46: Ensure smooth transition to goal by keeping critical final waypoints
+        - Always keep first TWO points (start + launch)
+        - Always keep last THREE points (approach + goal + deep)
+        - Intelligently subsample middle section
+        
+        This fixes the bug where waypoints would stop short of the goal bay
+        because the loop would break early and skip critical final waypoints.
         """
-        if len(dense_path) <= 3:
+        if len(dense_path) <= 5:
             return dense_path
 
-        selected = [dense_path[0]]
+        # 🔧 FIX: Reserve slots for start, launch, and final 3 waypoints
+        reserved_slots = 5  # start + launch + (approach + goal + deep)
+        middle_budget = max_waypoints - reserved_slots
+        
+        if middle_budget < 0:
+            # Path is too short, return as is
+            return dense_path
+        
+        selected = [dense_path[0]]  # Start
 
-        for i in range(1, len(dense_path) - 1):
-            # Always keep the 2nd point (the launch waypoint)
-            if i == 1:
-                selected.append(dense_path[i])
-                continue
+        # Always keep the 2nd point (launch waypoint)
+        if len(dense_path) > 1:
+            selected.append(dense_path[1])
 
+        # Subsample middle section (points 2 to len-4)
+        # Stop 3 points before the end to reserve space for final waypoints
+        middle_section_end = max(2, len(dense_path) - 3)
+        
+        for i in range(2, middle_section_end):
             angle = self._calculate_turn_angle(
                 dense_path[i - 1], dense_path[i], dense_path[i + 1]
             )
@@ -570,57 +699,109 @@ class WaypointEnv(ParkingEnv):
             if angle > np.radians(15) or dist >= min_spacing:
                 selected.append(dense_path[i])
 
-            if len(selected) >= max_waypoints - 1:
+            # 🔧 FIX: Check against middle_budget, not total max_waypoints
+            # This ensures we don't run out of slots for final waypoints
+            if len(selected) >= (2 + middle_budget):  # Start + launch + middle budget
                 break
 
-        # Always end exactly at the last point (goal)
-        selected.append(dense_path[-1])
+        # 🔧 FIX: Always keep final 3 waypoints for smooth goal approach
+        # This ensures the agent has clear guidance all the way into the bay
+        # Even if the loop breaks early, these final waypoints are guaranteed
+        if len(dense_path) >= 3:
+            selected.append(dense_path[-3])  # Approach waypoint
+            selected.append(dense_path[-2])  # Pre-goal waypoint  
+            selected.append(dense_path[-1])  # Goal waypoint
+        elif len(dense_path) == 2:
+            selected.append(dense_path[-1])
+        
         return selected
 
+    # def _create_staging_waypoint(self, goal: Tuple[float, float, float]):
+    #     """
+    #     Place a staging waypoint on the road in front of the bay.
+        
+    #     This version uses the ORIGINAL orientation-based logic which was correct.
+    #     """
+    #     goal_x, goal_y, goal_theta = goal
+    #     import math
+
+    #     theta_norm = (goal_theta + math.pi) % (2 * math.pi) - math.pi
+
+    #     # Facing south (down) - 0° bays
+    #     if abs(theta_norm) < math.pi / 4:
+    #         if goal_y > 10.0:  # lot_b horizontal bays
+    #             staging_x, staging_y = goal_x, 10.0
+    #         else:              # lot_a top row (A bays)
+    #             staging_x, staging_y = goal_x, 0.0
+    #         staging_theta = goal_theta
+
+    #     # Facing north (up) - 180° bays  
+    #     elif (
+    #         abs(theta_norm - math.pi) < math.pi / 4
+    #         or abs(theta_norm + math.pi) < math.pi / 4
+    #     ):
+    #         # lot_a bottom row (B bays)
+    #         staging_x, staging_y = goal_x, 0.0
+    #         staging_theta = goal_theta
+
+    #     # Facing east (right) - 90° bays
+    #     elif abs(theta_norm - math.pi / 2) < math.pi / 4:
+    #         # lot_b vertical bays should use the main road at x=0
+    #         if self.current_lot == "lot_b":
+    #             staging_x = 0.0  # Main road in lot_b runs vertically at x=0
+    #             staging_y = goal_y
+    #         else:
+    #             # Fallback for other lots or if road isn't at x=0
+    #             staging_distance = 3.0
+    #             staging_x = goal_x - staging_distance * np.cos(goal_theta)
+    #             staging_y = goal_y - staging_distance * np.sin(goal_theta)
+    #         staging_theta = goal_theta
+
+    #     else:
+    #         # Fallback: simple offset backwards along bay heading
+    #         staging_distance = 3.0
+    #         staging_x = goal_x - staging_distance * np.cos(goal_theta)
+    #         staging_y = goal_y - staging_distance * np.sin(goal_theta)
+    #         staging_theta = goal_theta
+
+    #     return (staging_x, staging_y, staging_theta)
 
     def _create_staging_waypoint(self, goal: Tuple[float, float, float]):
         """
         Place a staging waypoint on the road in front of the bay.
         
-        This version uses the ORIGINAL orientation-based logic which was correct.
+        v42 FIX: Updated for new yaw convention where goal_yaw = car's parking direction
         """
         goal_x, goal_y, goal_theta = goal
         import math
 
         theta_norm = (goal_theta + math.pi) % (2 * math.pi) - math.pi
 
-        # Facing south (down) - 0° bays
-        if abs(theta_norm) < math.pi / 4:
-            if goal_y > 10.0:  # lot_b horizontal bays
+        # v42: A-row bays (yaw ≈ π/2) - car faces NORTH, entrance faces SOUTH
+        if abs(theta_norm - math.pi / 2) < math.pi / 4:
+            if self.current_lot == "lot_b":
+                # lot_b H-bays: road at y=10
                 staging_x, staging_y = goal_x, 10.0
-            else:              # lot_a top row (A bays)
+            else:
+                # lot_a A-bays: road at y=0
                 staging_x, staging_y = goal_x, 0.0
             staging_theta = goal_theta
 
-        # Facing north (up) - 180° bays  
-        elif (
-            abs(theta_norm - math.pi) < math.pi / 4
-            or abs(theta_norm + math.pi) < math.pi / 4
-        ):
-            # lot_a bottom row (B bays)
+        # v42: B-row bays (yaw ≈ -π/2) - car faces SOUTH, entrance faces NORTH
+        elif abs(theta_norm + math.pi / 2) < math.pi / 4:
+            # lot_a B-bays: road at y=0
             staging_x, staging_y = goal_x, 0.0
             staging_theta = goal_theta
 
-        # Facing east (right) - 90° bays
-        elif abs(theta_norm - math.pi / 2) < math.pi / 4:
-            # lot_b vertical bays should use the main road at x=0
-            if self.current_lot == "lot_b":
-                staging_x = 0.0  # Main road in lot_b runs vertically at x=0
-                staging_y = goal_y
-            else:
-                # Fallback for other lots or if road isn't at x=0
-                staging_distance = 3.0
-                staging_x = goal_x - staging_distance * np.cos(goal_theta)
-                staging_y = goal_y - staging_distance * np.sin(goal_theta)
+        # v42: V-row bays (yaw ≈ π) - car faces WEST, entrance faces EAST
+        # v42: V-row bays (yaw ≈ π) - car faces WEST, entrance faces EAST
+        elif abs(abs(theta_norm) - math.pi) < math.pi / 4:
+            # lot_b V-bays: road at x=-4.0 (vertical road between V-bays and center)
+            staging_x, staging_y = -4.0, goal_y
             staging_theta = goal_theta
 
         else:
-            # Fallback: simple offset backwards along bay heading
+            # Fallback: offset backward from bay heading
             staging_distance = 3.0
             staging_x = goal_x - staging_distance * np.cos(goal_theta)
             staging_y = goal_y - staging_distance * np.sin(goal_theta)
@@ -928,18 +1109,32 @@ class WaypointEnv(ParkingEnv):
         half_w = bay_width / 2.0
         half_l = bay_length / 2.0
         
-        # 8 points in bay frame (relative to bay center, bay orientation)
-        # Corners: TL, TR, BR, BL (top-left, top-right, bottom-right, bottom-left)
-        # Midpoints: T, R, B, L (top, right, bottom, left)
+        # # 8 points in bay frame (relative to bay center, bay orientation)
+        # # Corners: TL, TR, BR, BL (top-left, top-right, bottom-right, bottom-left)
+        # # Midpoints: T, R, B, L (top, right, bottom, left)
+        # bay_points_local = [
+        #     (-half_l, half_w),   # Top-left corner
+        #     (-half_l, -half_w),  # Top-right corner  
+        #     (half_l, -half_w),   # Bottom-right corner
+        #     (half_l, half_w),    # Bottom-left corner
+        #     (-half_l, 0),        # Top edge midpoint
+        #     (0, -half_w),        # Right edge midpoint
+        #     (half_l, 0),         # Bottom edge midpoint
+        #     (0, half_w),         # Left edge midpoint
+        # ]
+        # v42 FIX: Bay local frame - SWAPPED to match new convention
+        # Local +X = depth (into bay), +Y = width (lateral)
+        # For A-row (yaw=π/2): +X points NORTH, +Y points EAST
+        # Entrance is at -X (toward road), deep is at +X (away from road)
         bay_points_local = [
-            (-half_l, half_w),   # Top-left corner
-            (-half_l, -half_w),  # Top-right corner  
-            (half_l, -half_w),   # Bottom-right corner
-            (half_l, half_w),    # Bottom-left corner
-            (-half_l, 0),        # Top edge midpoint
-            (0, -half_w),        # Right edge midpoint
-            (half_l, 0),         # Bottom edge midpoint
-            (0, half_w),         # Left edge midpoint
+            (-half_l, -half_w),  # Entrance left (back toward road)  # ✅ FIXED!
+            (-half_l, half_w),   # Entrance right                     # ✅ FIXED!
+            (half_l, half_w),    # Deep right (away from road)        # ✅ FIXED!
+            (half_l, -half_w),   # Deep left                          # ✅ FIXED!
+            (-half_l, 0),        # Entrance center                    # ✅ FIXED!
+            (0, half_w),         # Right edge midpoint                # ✅ FIXED!
+            (half_l, 0),         # Deep center                        # ✅ FIXED!
+            (0, -half_w),        # Left edge midpoint                 # ✅ FIXED!
         ]
         
         # Transform to car frame

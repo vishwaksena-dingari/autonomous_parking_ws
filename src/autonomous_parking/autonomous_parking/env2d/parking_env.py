@@ -275,7 +275,7 @@ class ParkingEnv(gym.Env):
         elif lot_name == "lot_b":
             # Lot B has BOTH horizontal (H-bays) and vertical (V-bays) roads
             self.road_center_y = 10.0  # H-bay horizontal road
-            self.road_center_x = 0.0   # V-bay vertical road
+            self.road_center_x = -4.0   # V-bay vertical road
             self.road_orientation = "mixed"
         
         # v38.9: Reinitialize OccupiedBayManager for new lot
@@ -304,13 +304,14 @@ class ParkingEnv(gym.Env):
         road_x = 0.0
 
         if self.lot_name == "lot_b":
-            # Heuristic: H-bays have yaw ~ 0 or pi. V-bays ~ +/- pi/2
-            if abs(math.cos(gyaw)) > 0.1: # Horizontal-ish
+            # Detect bay type by ID prefix (H1-H5 vs V1-V6)
+            bay_id = self.goal_bay.get("id", "")
+            if bay_id.startswith("H"):  # H-bays (horizontal road)
                 is_horizontal = True
                 road_y = 10.0
-            else:
+            else:  # V-bays (vertical road)
                 is_horizontal = False
-                road_x = 0.0
+                road_x = -4.0
         
         max_dist = self.max_spawn_dist_override if self.max_spawn_dist_override else 20.0
         max_dist = min(max_dist, 8.0)
@@ -322,48 +323,21 @@ class ParkingEnv(gym.Env):
             d_max = max(4.0, max_dist)
             d = self.random_state.uniform(d_min, d_max)
 
-            # Outward normal from bay center toward road (entrance direction)
-            # Bay faces 'gyaw', so entrance is 'gyaw + pi/2'? 
-            # Wait, let's check standard. In lot_a: A bays (y>0) have yaw=0. Entrance is -y direction (facing road at y=0).
-            # No, wait. 
-            # Lot A bays have yaw=0. The bay is drawn from y to y-length. 
-            # Let's trust the geometry:
-            # If A3 is at y=6.85, yaw=0. 
-            # A3 is Top row. Entrance is at bottom of bay.
-            # So from center, we want to move -x or -y?
-            # Standard: bay yaw points "into" the spot? Or "out"?
-            # Looking at drawing code: 
-            # corners = ... @ rotation + center.
-            # entrance is corners[0] to corners[1].
-            # corners[0] = -w/2, -l/2. corners[1] = w/2, -l/2.
-            # So entrance is at local y = -length/2.
-            # So "forward" out of the bay is -y direction (in bay frame).
-            
-            # Vector out of bay (entrance direction) in world frame:
-            # Rotation of (0, -1) -> (sin(yaw), -cos(yaw))
-            nx = math.sin(gyaw)
-            ny = -math.cos(gyaw)
+            # v42 FIX: Spawn at distance d BACKWARD from bay center
+            # In bay local frame: (-d, 0) where -X is toward entrance
+            # Transform to world frame
+            spawn_x = gx - d * math.cos(gyaw)
+            spawn_y = gy - d * math.sin(gyaw)
+            spawn_yaw = gyaw  # Face into bay (same as parking direction)
 
-            spawn_x = gx + nx * d
-            spawn_y = gy + ny * d
-
-            # Car faces INTO the bay (toward goal from spawn point along -normal):
-            # Normal vector: (sin(gyaw), -cos(gyaw)) points away from bay
-            # Car direction: (-sin(gyaw), cos(gyaw)) points into bay
-            # yaw = atan2(cos(gyaw), -sin(gyaw)) = gyaw + π/2
-            spawn_yaw = gyaw + math.pi / 2.0
-
-            # Optional lateral offset along bay row (for S1)
+            # Optional lateral offset (for S1 training)
             if lateral_offset is not None:
-                # Tangent vector (right side of bay): (cos(yaw), sin(yaw))
-                tx = math.cos(gyaw)
-                ty = math.sin(gyaw)
-                spawn_x += lateral_offset * tx
-                spawn_y += lateral_offset * ty
-
+                # Lateral = along bay width (Y-axis in bay frame)
+                spawn_x += lateral_offset * (-math.sin(gyaw))
+                spawn_y += lateral_offset * math.cos(gyaw)
         else:
             # 🔁 Existing road-based logic (using pre-calculated geometry)
-            dist = self.random_state.uniform(2.0, max_dist)
+            dist = self.random_state.uniform(5.0, max_dist)
 
             if self.spawn_side_override == "left":
                 direction = -1
@@ -398,7 +372,7 @@ class ParkingEnv(gym.Env):
                 spawn_x = np.clip(spawn_x, -22.0, 22.0)
                 spawn_y = np.clip(spawn_y, 8.0, 11.0) # Changed from 12.0 to 11.0
             else: # V-bays (Road x=0)
-                spawn_x = np.clip(spawn_x, -2.0, 2.0)
+                spawn_x = np.clip(spawn_x, -6.0, -2.0)
                 # Vertical road [-25, 10] + Intersection up to 13.75
                 # Max safe Y = 13.75 - 2.1 = 11.65. We use 11.0.
                 spawn_y = np.clip(spawn_y, -22.0, 11.0)
@@ -922,15 +896,17 @@ class ParkingEnv(gym.Env):
             by = bay["y"]
             byaw = bay["yaw"]
 
-            half_width = self.bay_width / 2
-            half_length = self.bay_length / 2
+            # v42 FIX: Swap width/length for new yaw convention
+            # New convention: yaw points INTO bay, local +X is depth, +Y is width
+            half_width = self.bay_width / 2   # 1.35m
+            half_length = self.bay_length / 2  # 2.75m
 
             corners_local = np.array(
                 [
-                    [-half_width, -half_length],  # entrance side
-                    [half_width, -half_length],
-                    [half_width, half_length],
-                    [-half_width, half_length],
+                    [-half_length, -half_width],  # entrance left (SWAPPED!)
+                    [-half_length, half_width],   # entrance right (SWAPPED!)
+                    [half_length, half_width],    # back right (SWAPPED!)
+                    [half_length, -half_width],   # back left (SWAPPED!)
                 ]
             )
 
@@ -980,8 +956,8 @@ class ParkingEnv(gym.Env):
         # Goal highlight
         self.goal_patch = Rectangle(
             (0, 0),
-            self.goal_width,
             self.goal_length,
+            self.goal_width,
             fill=True,
             facecolor="green",
             alpha=0.3,
@@ -1007,7 +983,7 @@ class ParkingEnv(gym.Env):
         self.ax.add_patch(self.car_patch)
 
         # Car front stripe
-        stripe_width = 0.3
+        stripe_width = 0.8
         self.car_front_stripe = Rectangle(
             (0, 0),
             stripe_width,
@@ -1155,12 +1131,14 @@ class ParkingEnv(gym.Env):
             gy = self.goal_bay["y"]
             gyaw = self.goal_bay["yaw"]
 
-            dx_g = (self.goal_width / 2) * math.cos(gyaw) - (
-                self.goal_length / 2
-            ) * math.sin(gyaw)
-            dy_g = (self.goal_width / 2) * math.sin(gyaw) + (
-                self.goal_length / 2
-            ) * math.cos(gyaw)
+            # dx_g = (self.goal_width / 2) * math.cos(gyaw) - (
+            #     self.goal_length / 2
+            # ) * math.sin(gyaw)
+            # dy_g = (self.goal_width / 2) * math.sin(gyaw) + (
+            #     self.goal_length / 2
+            # ) * math.cos(gyaw)
+            dx_g = (self.goal_length / 2) * math.cos(gyaw) - (self.goal_width / 2) * math.sin(gyaw)
+            dy_g = (self.goal_length / 2) * math.sin(gyaw) + (self.goal_width / 2) * math.cos(gyaw)
             llx_g = gx - dx_g
             lly_g = gy - dy_g
 

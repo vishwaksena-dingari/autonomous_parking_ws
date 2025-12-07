@@ -208,12 +208,12 @@ class CurriculumManager:
             # ===== PHASE 0: BABY PARKING (0-40k) =====
             CurriculumStage(
                 name="S0: Baby - Straight aligned, no obstacles",
-                lots=["lot_a"],
-                allowed_bays=["A2", "A3"],
+                lots=["lot_b"],
+                allowed_bays=["H3", "V3"],
                 allowed_orientations=[rad(0.0)],
-                max_spawn_dist=6.0,
+                max_spawn_dist=9.0,
                 spawn_side=None,
-                aligned_spawn=True,
+                aligned_spawn=False,
                 disable_obstacles=True,
                 advance_at_steps=20_000,
                 replay_prob=0.0,

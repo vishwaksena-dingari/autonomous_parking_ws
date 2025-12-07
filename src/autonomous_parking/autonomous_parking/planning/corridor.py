@@ -75,16 +75,44 @@ def calculate_corridor_boundaries(
     if len(waypoints) < 2:
         return [], []
     
-    # --- STEP 1: Create DENSE smoothed path ---
-    # This eliminates loops and sharp corners by working with an already-smooth curve
+    # # --- STEP 1: Create DENSE smoothed path ---
+    # # This eliminates loops and sharp corners by working with an already-smooth curve
+    # waypoints_array = np.array(waypoints)
+    # x_sparse = waypoints_array[:, 0]
+    # y_sparse = waypoints_array[:, 1]
+    
+    # # Generate dense smooth path (100 points)
+    # try:
+    #     tck, u = splprep([x_sparse, y_sparse], s=0.5, k=min(3, len(waypoints)-1))
+    #     u_dense = np.linspace(0, 1, 100)
+    #     x_dense, y_dense = splev(u_dense, tck)
+        
+    #     # Compute tangents from dense path
+    #     dx = np.gradient(x_dense)
+    #     dy = np.gradient(y_dense)
+    #     theta_dense = np.arctan2(dy, dx)
+        
+    #     dense_path = list(zip(x_dense, y_dense, theta_dense))
+    # except:
+    #     # Fallback to sparse waypoints if smoothing fails
+    #     dense_path = waypoints
+        
+    # --- STEP 1: Use waypoints with light densification ---
+    # 🔧 v46 FIX: Waypoints are already smoothed, just densify slightly for corridor
     waypoints_array = np.array(waypoints)
     x_sparse = waypoints_array[:, 0]
     y_sparse = waypoints_array[:, 1]
     
-    # Generate dense smooth path (100 points)
+    # 🔧 FIX: Adaptive densification based on waypoint count
+    # Use 2x waypoints (not fixed 100) to preserve waypoint structure
+    target_points = min(len(waypoints) * 2, 60)  # Cap at 60 for performance
+    
     try:
-        tck, u = splprep([x_sparse, y_sparse], s=0.5, k=min(3, len(waypoints)-1))
-        u_dense = np.linspace(0, 1, 100)
+        # 🔧 FIX: Reduce smoothing parameter (s=0.1 instead of 0.5)
+        # This makes corridor follow waypoints more closely
+        # Lower s = tighter fit to waypoints = corridor matches actual path better
+        tck, u = splprep([x_sparse, y_sparse], s=0.1, k=min(3, len(waypoints)-1))
+        u_dense = np.linspace(0, 1, target_points)
         x_dense, y_dense = splev(u_dense, tck)
         
         # Compute tangents from dense path
@@ -96,19 +124,22 @@ def calculate_corridor_boundaries(
     except:
         # Fallback to sparse waypoints if smoothing fails
         dense_path = waypoints
-        
+
     # --- STEP 2: Identify Bay Entrance ---
     bx, by = goal_bay['x'], goal_bay['y']
     b_yaw = goal_bay['yaw']  # Direction INTO the bay (car heading when parked)
-    b_depth = goal_bay.get('depth', 5.0)
-    b_width = goal_bay.get('width', 2.8)
+    b_depth = goal_bay.get('depth', 5.5)
+    b_width = goal_bay.get('width', 2.7)
     
-    # CRITICAL: Bay's physical rectangle is PERPENDICULAR to b_yaw
-    bay_orientation = b_yaw + np.pi / 2.0
+    # # CRITICAL: Bay's physical rectangle is PERPENDICULAR to b_yaw
+    # bay_orientation = b_yaw + np.pi / 2.0
     
-    # Entrance is at the "front" of the bay
-    entrance_x = bx - (b_depth / 2.0) * np.cos(bay_orientation)
-    entrance_y = by - (b_depth / 2.0) * np.sin(bay_orientation)
+    # # Entrance is at the "front" of the bay
+    # entrance_x = bx - (b_depth / 2.0) * np.cos(bay_orientation)
+    # entrance_y = by - (b_depth / 2.0) * np.sin(bay_orientation)
+    bay_orientation = b_yaw  # REMOVED: + np.pi / 2.0
+    entrance_x = bx + (-b_depth / 2.0) * np.cos(bay_orientation)
+    entrance_y = by + (-b_depth / 2.0) * np.sin(bay_orientation)
     
     # Find split index in dense path
     split_idx = len(dense_path) - 1
@@ -168,39 +199,84 @@ def calculate_corridor_boundaries(
     return left_boundary, right_boundary
 
 
+# def calculate_8_point_bay_reference(goal_bay: Dict) -> List[Tuple[float, float]]:
+#     """
+#     Calculate 8-point bay reference system (4 corners + 4 edge midpoints).
+    
+#     This provides spatial awareness of bay boundaries for the agent.
+    
+#     Args:
+#         goal_bay: Dictionary with bay geometry (x, y, yaw, width, depth)
+        
+#     Returns:
+#         List of 8 (x, y) points in world frame
+#     """
+#     bx, by = goal_bay['x'], goal_bay['y']
+#     b_yaw = goal_bay['yaw']
+#     b_depth = goal_bay.get('depth', 5.0)
+#     b_width = goal_bay.get('width', 2.8)
+    
+#     # Bay orientation is perpendicular to goal_yaw
+#     bay_orientation = b_yaw + np.pi / 2.0
+    
+#     half_l = b_depth / 2.0
+#     half_w = b_width / 2.0
+    
+#     # 8 points in bay-aligned frame
+#     bay_points_local = [
+#         (-half_l, half_w),   # Corner 1
+#         (-half_l, -half_w),  # Corner 2
+#         (half_l, -half_w),   # Corner 3
+#         (half_l, half_w),    # Corner 4
+#         (-half_l, 0),        # Edge midpoint 1
+#         (0, -half_w),        # Edge midpoint 2
+#         (half_l, 0),         # Edge midpoint 3
+#         (0, half_w),         # Edge midpoint 4
+#     ]
+    
+#     # Transform to world frame
+#     bay_points_world = []
+#     cos_b = np.cos(bay_orientation)
+#     sin_b = np.sin(bay_orientation)
+    
+#     for lx, ly in bay_points_local:
+#         wx = bx + lx * cos_b - ly * sin_b
+#         wy = by + lx * sin_b + ly * cos_b
+#         bay_points_world.append((wx, wy))
+        
+#     return bay_points_world
+
+
+
 def calculate_8_point_bay_reference(goal_bay: Dict) -> List[Tuple[float, float]]:
     """
     Calculate 8-point bay reference system (4 corners + 4 edge midpoints).
     
-    This provides spatial awareness of bay boundaries for the agent.
-    
-    Args:
-        goal_bay: Dictionary with bay geometry (x, y, yaw, width, depth)
-        
-    Returns:
-        List of 8 (x, y) points in world frame
+    v42 FIX: Use bay yaw directly (no rotation offset needed)
+    Bay local frame: +X = depth (into bay), +Y = width (lateral)
     """
     bx, by = goal_bay['x'], goal_bay['y']
     b_yaw = goal_bay['yaw']
-    b_depth = goal_bay.get('depth', 5.0)
-    b_width = goal_bay.get('width', 2.8)
+    b_depth = goal_bay.get('depth', 5.5)  # Match bay_length
+    b_width = goal_bay.get('width', 2.7)  # Match bay_width
     
-    # Bay orientation is perpendicular to goal_yaw
-    bay_orientation = b_yaw + np.pi / 2.0
+    # v42 FIX: Use bay yaw directly (it already points INTO the bay)
+    bay_orientation = b_yaw  # ✅ FIXED! No extra rotation
     
-    half_l = b_depth / 2.0
-    half_w = b_width / 2.0
+    half_l = b_depth / 2.0  # 2.75m
+    half_w = b_width / 2.0  # 1.35m
     
-    # 8 points in bay-aligned frame
+    # v42 FIX: Bay local frame - SWAPPED to match new convention
+    # Local +X = depth (into bay), +Y = width (lateral)
     bay_points_local = [
-        (-half_l, half_w),   # Corner 1
-        (-half_l, -half_w),  # Corner 2
-        (half_l, -half_w),   # Corner 3
-        (half_l, half_w),    # Corner 4
-        (-half_l, 0),        # Edge midpoint 1
-        (0, -half_w),        # Edge midpoint 2
-        (half_l, 0),         # Edge midpoint 3
-        (0, half_w),         # Edge midpoint 4
+        (-half_l, -half_w),  # Entrance left (back toward road)
+        (-half_l, half_w),   # Entrance right
+        (half_l, half_w),    # Deep left (away from road)
+        (half_l, -half_w),   # Deep right
+        (-half_l, 0),        # Entrance center
+        (0, half_w),         # Right edge midpoint
+        (half_l, 0),         # Deep center
+        (0, -half_w),        # Left edge midpoint
     ]
     
     # Transform to world frame

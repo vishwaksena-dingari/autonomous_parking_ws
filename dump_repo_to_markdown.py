@@ -41,10 +41,10 @@ IMAGE_EXTS = {
     ".svg",
     ".ico",
 }
-SKIP_FILE_EXTS = {".log", ".mp4", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp", ".svg", ".ico", ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar"}
+SKIP_FILE_EXTS = {".md", ".log", ".mp4", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp", ".svg", ".ico", ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar"}
 
 # Directories to ignore (case-insensitive)
-SKIP_DIR_NAMES = {"results", "images", "__pycache__", "old", "archive", "_scratch"}
+SKIP_DIR_NAMES = {"logs", "results", "images", "__pycache__", "old", "archive", "_scratch"}
 
 
 def is_hidden(path: Path) -> bool:
@@ -153,8 +153,14 @@ def generate_tree(root: Path, ignore_paths) -> str:
                 continue
             if has_bak_in_name(child):
                 continue
-            if child.is_dir() and child.name.lower() in SKIP_DIR_NAMES:
-                continue
+            # Skip certain directories
+            if child.is_dir():
+                if child.name.lower() in SKIP_DIR_NAMES:
+                    continue
+            else:
+                # Skip files by extension (logs, images, videos, archives, etc.)
+                if is_skipped_by_ext(child):
+                    continue
 
             entries.append(child)
 
