@@ -242,6 +242,9 @@ PARAM_GRID: Dict[str, List] = {
     "corridor_penalty": [0.05, 0.1, 0.2, 0.5],
     "vel_reward_w": [0.01, 0.02, 0.05],
     "ent_coef": [0.005, 0.01, 0.02, 0.05],
+    # v42: New tunable parameters
+    "backward_penalty_weight": [1.0, 2.0, 5.0],
+    "anti_freeze_penalty": [0.01, 0.05, 0.1],
 }
 
 # Short training regime for tuning
@@ -293,6 +296,8 @@ def run_reward_training(config: Dict, run_name: str, log_dir: Path) -> Path:
         "--corridor-penalty", str(config["corridor_penalty"]),
         "--vel-reward-w", str(config["vel_reward_w"]),
         "--ent-coef", str(config["ent_coef"]),
+        "--backward-penalty-weight", str(config["backward_penalty_weight"]),
+        "--anti-freeze-penalty", str(config["anti_freeze_penalty"]),
     ]
 
     with PRINT_LOCK:
@@ -499,7 +504,10 @@ def load_best_reward_config_from_json(json_path: Path) -> Dict:
 
     best = max(data, key=lambda d: d.get("score", -1e9))
     cfg = best.get("config", {})
-    required = ["align_w", "success_bonus", "bay_entry_bonus", "corridor_penalty", "vel_reward_w", "ent_coef"]
+    required = [
+        "align_w", "success_bonus", "bay_entry_bonus", "corridor_penalty",
+        "vel_reward_w", "ent_coef", "backward_penalty_weight", "anti_freeze_penalty"
+    ]
     for k in required:
         if k not in cfg:
             raise ValueError(f"Missing '{k}' in best reward config from {json_path}")
@@ -569,6 +577,8 @@ def run_ppo_training(
         "--corridor-penalty", str(reward_cfg["corridor_penalty"]),
         "--vel-reward-w", str(reward_cfg["vel_reward_w"]),
         "--ent-coef", str(reward_cfg["ent_coef"]),
+        "--backward-penalty-weight", str(reward_cfg["backward_penalty_weight"]),
+        "--anti-freeze-penalty", str(reward_cfg["anti_freeze_penalty"]),
         # PPO params
         "--learning-rate", str(ppo_cfg["learning_rate"]),
         "--gamma", str(ppo_cfg["gamma"]),

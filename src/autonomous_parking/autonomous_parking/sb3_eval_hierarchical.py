@@ -11,6 +11,9 @@ import time
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
+import imageio
+from PIL import Image
+
 
 try:
     import gymnasium as gym
@@ -39,6 +42,9 @@ def run_eval(
     )
 
     print(f"Loading model from: {model_path}")
+    eval_dir = os.path.join(os.path.dirname(model_path), "eval_videos")
+    os.makedirs(eval_dir, exist_ok=True)
+
     model = PPO.load(model_path)
 
     all_returns = []
@@ -56,6 +62,9 @@ def run_eval(
         print(f"\n=== Episode {ep} ({lot}) ===")
         print(f"Waypoints generated: {len(env.waypoints)}")
 
+        video_path = os.path.join(eval_dir, f"episode_{ep:03d}.mp4")
+        writer = imageio.get_writer(video_path, fps=int(1/dt))
+
         if hasattr(env, 'ax') and env.ax is not None:
             waypoints = np.array(env.waypoints)
             env.ax.plot(waypoints[:, 0], waypoints[:, 1], 'r--', linewidth=2, alpha=0.7, label='A* Path')
@@ -70,21 +79,56 @@ def run_eval(
             ep_reward += reward
             step_count += 1
 
+            # if ep == 1 or (ep % 10 == 0):
+            #     # Note: 't' and 'dist' are not defined in this scope.
+            #     # Assuming 't' should be 'step_count' and 'dist' should be 'info.get("dist_to_goal", 0)'.
+            #     # Also, 'env.current_waypoint_idx' and 'env.success' might not be directly accessible,
+            #     # using 'info.get' for consistency.
+            #     print(
+            #         f"step={step_count:03d} "
+            #         f"reward={reward:7.3f} "
+            #         f"wp={info.get('waypoint_idx', 0)}/{info.get('total_waypoints', 0)} "
+            #         f"dist_goal={info.get('dist_to_goal', 0):.2f} "
+            #         f"success={info.get('success', False)}"
+            #     )
+            # if ep == 1 or (ep % 10 == 0):
+            #     # Note: 't' and 'dist' are not defined in this scope.
+            #     print(
+            #         f"step={t:03d} "
+            #         f"reward={reward:7.3f} "
+            #         f"wp={env.current_waypoint_idx}/{len(env.waypoints)} "
+            #         f"dist_goal={dist:.2f} "
+            #         f"success={env.success}"
+            #     )
             if ep == 1 or (ep % 10 == 0):
-                # Note: 't' and 'dist' are not defined in this scope.
-                # Assuming 't' should be 'step_count' and 'dist' should be 'info.get("dist_to_goal", 0)'.
-                # Also, 'env.current_waypoint_idx' and 'env.success' might not be directly accessible,
-                # using 'info.get' for consistency.
+                wp_idx = info.get("waypoint_idx", 0)
+                wp_total = info.get("total_waypoints", 0)
+                dist_g = info.get("dist_to_goal", 0.0)
+                success_flag = info.get("success", False)
+
                 print(
-                    f"step={step_count:03d} "
-                    f"reward={reward:7.3f} "
-                    f"wp={info.get('waypoint_idx', 0)}/{info.get('total_waypoints', 0)} "
-                    f"dist_goal={info.get('dist_to_goal', 0):.2f} "
-                    f"success={info.get('success', False)}"
-                )
+                    f"[step {step_count:03d}] "
+                    f"rew={reward:7.3f} | "
+                    f"wp={wp_idx}/{wp_total} | "
+                    f"dist={dist_g:5.2f}m | "
+                    f"success={success_flag}"
+                    )
+
 
             if render:
-                env.render()
+                frame = env.render()
+
+                if frame is None and hasattr(env, "fig"):
+                    env.fig.canvas.draw()
+                    frame = np.array(env.fig.canvas.renderer.buffer_rgba())
+
+                if frame is not None:
+                    if isinstance(frame, np.ndarray):
+                        img = frame
+                    else:
+                        img = np.array(frame)
+                    writer.append_data(img)
+
                 time.sleep(dt)
 
         all_returns.append(ep_reward)
@@ -101,6 +145,9 @@ def run_eval(
             f"success={info.get('success', False)}, "
             f"collision={info.get('collision', False)}"
         )
+
+        writer.close()
+        print(f"[VIDEO SAVED] {video_path}")
 
     print("\n=== EVAL SUMMARY ===")
     print(f"Episodes       : {episodes}")

@@ -25,9 +25,10 @@ class WaypointRewardCalculator:
     
     def __init__(
         self,
-        velocity_reward_weight: float = 0.05,   # v38.5: INCREASED 10x (was 0.005) to fix oscillation
+        velocity_reward_weight: float = 0.05,   # INCREASED 10x (was 0.005) to fix oscillation
         low_velocity_penalty: float = 0.01,     # SCALED: was 1.0
-        anti_freeze_penalty: float = 0.02,      # SCALED: was 2.0
+        anti_freeze_penalty: float = 0.01,    
+        backward_penalty_weight: float = 2.0,
     ):
         """
         Waypoint-based reward calculator.
@@ -40,7 +41,12 @@ class WaypointRewardCalculator:
         self.velocity_reward_weight = velocity_reward_weight
         self.low_velocity_penalty = low_velocity_penalty
         self.anti_freeze_penalty = anti_freeze_penalty
-    
+        self.backward_penalty_weight = backward_penalty_weight
+
+        # Any other state you keep for navigation
+        self.prev_progress_sign = 0.0
+        self._anti_freeze_counter = 0
+
     def calculate_waypoint_bonus(
         self,
         segment_length: float,
@@ -58,7 +64,7 @@ class WaypointRewardCalculator:
         Returns:
             Bonus reward for reaching waypoint
         """
-        # v29: MASSIVE bonus for final waypoints to create "irresistible pull"
+        #  MASSIVE bonus for final waypoints to create "irresistible pull"
         # Early waypoints: 1.0x - 1.5x (normal)
         # Final 30%: Exponentially increases up to 10x
         if progress_ratio > 0.7:
@@ -71,6 +77,83 @@ class WaypointRewardCalculator:
             multiplier = 1.0 + 0.5 * (progress_ratio / 0.7)
         return segment_length * reward_per_meter * multiplier
     
+    # def calculate_navigation_reward(
+    #     self,
+    #     dist_to_waypoint: float,
+    #     prev_dist_to_waypoint: Optional[float],
+    #     velocity: float,
+    #     dist_to_goal: float,
+    #     yaw_error: float,
+    #     y_position: float = 0.0,
+    #     goal_y: float = 0.0,  # Added to determine target side
+    # ) -> float:
+    #     """
+    #     Combined navigation reward for waypoint following.
+    #     """
+    #     reward = 0.0
+        
+    #     # Base penalty: distance to waypoint (SCALED: was -0.2)
+    #     reward += -0.002 * dist_to_waypoint
+        
+    #     # # Progress reward: getting closer to waypoint (INCREASED 5x, was 0.02)
+    #     # if prev_dist_to_waypoint is not None:
+    #     #     progress = prev_dist_to_waypoint - dist_to_waypoint
+    #     #     reward += 0.1 * progress
+    #     if prev_dist_to_waypoint is not None:
+    #         progress = prev_dist_to_waypoint - dist_to_waypoint
+    #         if progress > 0 and velocity > 0.1:
+    #             reward += 0.1 * progress
+        
+    #     #  PATH-FOLLOWING reward (replaces generic forward velocity)
+    #     # Reward velocity component ALONG the path to waypoint, not just "forward"
+    #     # This encourages following the path shape, not just driving straight
+    #     # if prev_dist_to_waypoint is not None and dist_to_waypoint > 0.01:
+    #     #     # Calculate path-aligned velocity component
+    #     #     # If moving towards waypoint: positive reward
+    #     #     # If moving away: negative reward (implicit via progress term above)
+    #     #     path_velocity = (prev_dist_to_waypoint - dist_to_waypoint) / 0.1  # dt = 0.1s
+    #     #     if path_velocity > 0.1:  # Moving towards waypoint
+    #     #         reward += self.velocity_reward_weight * min(path_velocity, 2.0)
+        
+    #     if prev_dist_to_waypoint is not None and dist_to_waypoint > 0.01:
+    #         path_velocity = (prev_dist_to_waypoint - dist_to_waypoint) / 0.1
+    #         if path_velocity > 0.1 and velocity > 0.1:
+    #             reward += self.velocity_reward_weight * min(path_velocity, 2.0)
+    #         elif path_velocity > 0.1 and velocity < -0.1:
+    #             reward -= 1.0
+
+    #     # FIX: Only penalize low SPEED when FAR from goal (> 3.0m)
+    #     if abs(velocity) < 0.2 and dist_to_goal > 3.0:
+    #         reward -= self.low_velocity_penalty
+            
+    #     # SMART ROAD-STAYING PENALTY
+    #     # Only penalize going to the WRONG side of the road.
+    #     # Allow entering the correct bay area.
+    #     if dist_to_goal > 3.0:
+    #         # If target is Top (y > 0), penalize Bottom (y < -3.0) (SCALED: was 1.0)
+    #         if goal_y > 0 and y_position < -3.0:
+    #             reward -= 0.01 * (abs(y_position) - 3.0)
+    #         # If target is Bottom (y < 0), penalize Top (y > 3.0) (SCALED: was 1.0)
+    #         elif goal_y < 0 and y_position > 3.0:
+    #             reward -= 0.01 * (abs(y_position) - 3.0)
+        
+    #     # Anti-freeze penalty (balanced scale)
+    #     # Penalty for not moving when far from goal
+    #     # FIX: Use configurable self.anti_freeze_penalty instead of hardcoded 0.02
+    #     # if dist_to_goal > 3.0 and velocity < 0.3:
+    #     #     reward -= self.anti_freeze_penalty  # Small but consistent push to move
+    #     if dist_to_goal > 3.0 and abs(velocity) < 0.3:
+    #         reward -= self.anti_freeze_penalty
+        
+    #     # BACKWARD MOTION PENALTY (CRITICAL FIX)
+    #     if velocity < -0.1:
+    #         backward_penalty = -self.backward_penalty_weight * abs(velocity)
+    #         reward += backward_penalty
+    #     elif velocity < 0.0:
+    #         reward -= 0.5 * self.backward_penalty_weight
+
+    #     return reward
+
     def calculate_navigation_reward(
         self,
         dist_to_waypoint: float,
@@ -79,74 +162,75 @@ class WaypointRewardCalculator:
         dist_to_goal: float,
         yaw_error: float,
         y_position: float = 0.0,
-        goal_y: float = 0.0,  # v30.1: Added to determine target side
+        goal_y: float = 0.0,  # Added to determine target side
     ) -> float:
         """
         Combined navigation reward for waypoint following.
         """
         reward = 0.0
-        
+
         # Base penalty: distance to waypoint (SCALED: was -0.2)
         reward += -0.002 * dist_to_waypoint
-        
-        # # Progress reward: getting closer to waypoint (v38.5: INCREASED 5x, was 0.02)
-        # if prev_dist_to_waypoint is not None:
-        #     progress = prev_dist_to_waypoint - dist_to_waypoint
-        #     reward += 0.1 * progress
+
+        # Progress reward: ONLY when moving forward and making progress
         if prev_dist_to_waypoint is not None:
             progress = prev_dist_to_waypoint - dist_to_waypoint
             if progress > 0 and velocity > 0.1:
                 reward += 0.1 * progress
-        
-        # v28: PATH-FOLLOWING reward (replaces generic forward velocity)
-        # Reward velocity component ALONG the path to waypoint, not just "forward"
-        # This encourages following the path shape, not just driving straight
-        # if prev_dist_to_waypoint is not None and dist_to_waypoint > 0.01:
-        #     # Calculate path-aligned velocity component
-        #     # If moving towards waypoint: positive reward
-        #     # If moving away: negative reward (implicit via progress term above)
-        #     path_velocity = (prev_dist_to_waypoint - dist_to_waypoint) / 0.1  # dt = 0.1s
-        #     if path_velocity > 0.1:  # Moving towards waypoint
-        #         reward += self.velocity_reward_weight * min(path_velocity, 2.0)
-        
+
+        #  PATH-FOLLOWING reward (aligned velocity component)
         if prev_dist_to_waypoint is not None and dist_to_waypoint > 0.01:
-            path_velocity = (prev_dist_to_waypoint - dist_to_waypoint) / 0.1
+            path_velocity = (prev_dist_to_waypoint - dist_to_waypoint) / 0.1  # dt = 0.1s
             if path_velocity > 0.1 and velocity > 0.1:
+                # Moving toward waypoint with forward speed
                 reward += self.velocity_reward_weight * min(path_velocity, 2.0)
             elif path_velocity > 0.1 and velocity < -0.1:
+                # Moving toward waypoint but in reverse → penalize
                 reward -= 1.0
 
-        # FIX: Only penalize low SPEED when FAR from goal (> 3.0m)
+        # Penalize low SPEED only when FAR from goal (> 3.0m)
         if abs(velocity) < 0.2 and dist_to_goal > 3.0:
             reward -= self.low_velocity_penalty
-            
-        # v30.1: SMART ROAD-STAYING PENALTY
-        # Only penalize going to the WRONG side of the road.
-        # Allow entering the correct bay area.
+
+        # SMART ROAD-STAYING PENALTY
         if dist_to_goal > 3.0:
-            # If target is Top (y > 0), penalize Bottom (y < -3.0) (SCALED: was 1.0)
+            # If target is Top (y > 0), penalize Bottom (y < -3.0)
             if goal_y > 0 and y_position < -3.0:
                 reward -= 0.01 * (abs(y_position) - 3.0)
-            # If target is Bottom (y < 0), penalize Top (y > 3.0) (SCALED: was 1.0)
+            # If target is Bottom (y < 0), penalize Top (y > 3.0)
             elif goal_y < 0 and y_position > 3.0:
                 reward -= 0.01 * (abs(y_position) - 3.0)
-        
-        # v38.7: Anti-freeze penalty (balanced scale)
-        # Penalty for not moving when far from goal
-        # v38.9 FIX: Use configurable self.anti_freeze_penalty instead of hardcoded 0.02
-        # if dist_to_goal > 3.0 and velocity < 0.3:
-        #     reward -= self.anti_freeze_penalty  # Small but consistent push to move
-        if dist_to_goal > 3.0 and abs(velocity) < 0.3:
+
+        # Anti-freeze penalty (use abs velocity)
+        # if dist_to_goal > 3.0 and abs(velocity) < 0.3:
+        #     reward -= self.anti_freeze_penalty
+        # Do NOT penalize near bay entrance
+        # Always penalize freezing unless VERY close (<1.0m)
+        # Anti-freeze penalty (use abs velocity)
+        if dist_to_goal > 1.0 and abs(velocity) < 0.3:
             reward -= self.anti_freeze_penalty
-        
-        # v42: BACKWARD MOTION PENALTY (CRITICAL FIX)
+
+        # Small forward boost when nicely aligned in the corridor toward the bay.
+        # This directly targets the "stuck between A and B blocks" situation.
+        # Assumes A-bays are at positive y, B-bays at negative y.
+        if dist_to_goal > 2.0 and dist_to_goal < 10.0:
+            # Roughly on the centre vertical line and facing the goal
+            # if abs(y_position) < 2.0 and ((goal_y > 0 and velocity > 0.0) or (goal_y < 0 and velocity < 0.0)):
+            if abs(y_position) < 2.0 and velocity > 0.1:
+                # +0.05 * |v| is tiny vs other terms but enough to
+                # break the symmetry between "stay" vs "go"
+                reward += 0.05 * abs(velocity)
+
+        # BACKWARD MOTION PENALTY (CRITICAL FIX)
         if velocity < -0.1:
-            backward_penalty = -2.0 * abs(velocity)
+            backward_penalty = -self.backward_penalty_weight * abs(velocity)
             reward += backward_penalty
         elif velocity < 0.0:
-            reward -= 0.5
+            reward -= 0.5 * self.backward_penalty_weight
 
         return reward
+
+
     
     def calculate_path_deviation_penalty(
         self,
@@ -155,7 +239,7 @@ class WaypointRewardCalculator:
         current_wp_idx: int,
     ) -> float:
         """
-        v31: PATH DEVIATION PENALTY
+        PATH DEVIATION PENALTY
         Penalize perpendicular distance from the current path segment.
         
         This provides continuous feedback to keep the agent on the path line,
@@ -251,15 +335,15 @@ class WaypointRewardCalculator:
         car_x: float,
         car_y: float,
         car_yaw: float,
-        car_length: float = 4.5,
+        car_length: float = 4.2,
         car_width: float = 1.9,
     ) -> List[Tuple[float, float]]:
         """Get the 4 corners of the car in world coordinates.
         
-        v41 FIX: car_x, car_y are rear-axle coordinates (from state).
+        FIX: car_x, car_y are rear-axle coordinates (from state).
         We convert to geometric center before computing corners.
         """
-        # v41: Convert rear-axle to geometric center
+        # Convert rear-axle to geometric center
         center_x = car_x + (car_length / 2.0) * np.cos(car_yaw)
         center_y = car_y + (car_length / 2.0) * np.sin(car_yaw)
         
@@ -294,60 +378,143 @@ class WaypointRewardCalculator:
         goal_bay: Dict,
         corridor_width: float = 3.0,
         penalty_weight: float = 1.0,
-        car_yaw: float = 0.0,  # NEW: needed for corner checking
-        current_wp_idx: int = 1,  # NEW: use current waypoint segment
-        car_length: float = 4.5,
+        car_yaw: float = 0.0,        # used for corner checking
+        current_wp_idx: int = 1,     # use current waypoint segment
+        car_length: float = 4.2,
         car_width: float = 1.9,
     ) -> Tuple[float, bool]:
         """
-        v35: FIXED corridor constraint using perpendicular distance and car corners.
-        
-        CRITICAL FIXES:
-        1. Uses perpendicular distance to path SEGMENT (not point distance)
-        2. Checks ALL 4 car corners (not just center)
-        3. Asymmetric: outer = 10x harsh, inner = 1x soft
-        4. Terminates if ANY corner > 2m outside
+        Corridor constraint using perpendicular distance and car corners.
+
+        - Uses perpendicular distance to path segment
+        - Checks all 4 car corners
+        - Asymmetric: outer side = strong penalty, inner side = 0 penalty
+        - Terminates episode if any outer violation is too large
+        - Small centre-line bonus to avoid "happy sticking" in the corridor
         """
         # Need at least 2 waypoints to define a segment
         if current_wp_idx < 1 or current_wp_idx >= len(waypoints):
             return 0.0, False
-        
-        # Get current path segment
+
+        # Current path segment: previous waypoint -> current waypoint
         p1 = waypoints[current_wp_idx - 1][:2]
         p2 = waypoints[current_wp_idx][:2]
-        
-        # Get car corners
+
+        # Car corners in world frame
         corners = self._get_car_corners(car_x, car_y, car_yaw, car_length, car_width)
-        
+
         corridor_half_width = corridor_width / 2.0
         total_penalty = 0.0
         should_terminate = False
-        
+
+        max_signed_dist = 0.0  # track how well-centred we are
+
         for corner in corners:
-            perp_dist, signed_dist = self._get_perpendicular_distance_to_segment(corner, p1, p2)
-            
-            # Check if outside corridor
+            perp_dist, signed_dist = self._get_perpendicular_distance_to_segment(
+                corner, p1, p2
+            )
+
+            # Track worst signed distance for centre bonus calculation
+            max_signed_dist = max(max_signed_dist, abs(signed_dist))
+
+            # Only care if the corner is outside the corridor
             if perp_dist > corridor_half_width:
                 violation_dist = perp_dist - corridor_half_width
-                
-                # v38: STRICT ASYMMETRIC PENALTY
-                # Positive signed_dist = LEFT of path (typically outer/oncoming lane)
-                # Negative signed_dist = RIGHT of path (typically inner/cutting corner)
-                if signed_dist > 0:
-                    # OUTER BOUNDARY: Strong penalty (10x) - was 100x, too harsh
-                    # v38.6: Reduced from 100x to 10x to prevent reward explosion
+
+                # Positive signed_dist = LEFT of path (outer / oncoming side)
+                # Negative signed_dist = RIGHT of path (inner / corner-cutting side)
+                if signed_dist > 0.0:
+                    # OUTER BOUNDARY: strong penalty
                     corner_penalty = -penalty_weight * 10.0 * violation_dist
                     total_penalty += corner_penalty
-                    
-                    # TERMINATE immediately if ANY outer violation > 0.5m
+
+                    # TERMINATE if any outer violation is too large
                     if violation_dist > 0.5:
                         should_terminate = True
                 else:
-                    # INNER BOUNDARY: NO PENALTY (0x) - allow corner cutting
-                    # This is intentional - agent can cut corners to optimize path
-                    corner_penalty = 0.0
-        
+                    # INNER BOUNDARY: no penalty (allow gentle corner cutting)
+                    continue
+
+        # --- Centre-line bonus (prevents "I'm comfy here, I'll do nothing") ---
+        # If all corners are comfortably within the corridor and close to the centre,
+        # give a small positive reward. This encourages moving forward along the path
+        # instead of freezing at a locally "safe" spot.
+        if total_penalty == 0.0 and max_signed_dist < (0.25 * corridor_half_width):
+            # +0.02 is small relative to other terms; tune if needed
+            centre_bonus = 0.02
+            total_penalty += centre_bonus
+
         return total_penalty, should_terminate
+
+
+    # def calculate_corridor_constraint_reward(
+    #     self,
+    #     car_x: float,
+    #     car_y: float,
+    #     waypoints: List[Tuple[float, float, float]],
+    #     goal_bay: Dict,
+    #     corridor_width: float = 3.0,
+    #     penalty_weight: float = 1.0,
+    #     car_yaw: float = 0.0,  # NEW: needed for corner checking
+    #     current_wp_idx: int = 1,  # NEW: use current waypoint segment
+    #     car_length: float = 4.2,
+    #     car_width: float = 1.9,
+    # ) -> Tuple[float, bool]:
+    #     """
+    #     FIXED corridor constraint using perpendicular distance and car corners.
+        
+    #     CRITICAL FIXES:
+    #     1. Uses perpendicular distance to path SEGMENT (not point distance)
+    #     2. Checks ALL 4 car corners (not just center)
+    #     3. Asymmetric: outer = 10x harsh, inner = 1x soft
+    #     4. Terminates if ANY corner > 2m outside
+    #     """
+    #     # Need at least 2 waypoints to define a segment
+    #     if current_wp_idx < 1 or current_wp_idx >= len(waypoints):
+    #         return 0.0, False
+        
+    #     # Get current path segment
+    #     p1 = waypoints[current_wp_idx - 1][:2]
+    #     p2 = waypoints[current_wp_idx][:2]
+        
+    #     # Get car corners
+    #     corners = self._get_car_corners(car_x, car_y, car_yaw, car_length, car_width)
+        
+    #     corridor_half_width = corridor_width / 2.0
+    #     total_penalty = 0.0
+    #     should_terminate = False
+        
+    #     for corner in corners:
+    #         perp_dist, signed_dist = self._get_perpendicular_distance_to_segment(corner, p1, p2)
+            
+    #         # Check if outside corridor
+    #         if perp_dist > corridor_half_width:
+    #             violation_dist = perp_dist - corridor_half_width
+                
+    #             # STRICT ASYMMETRIC PENALTY
+    #             # Positive signed_dist = LEFT of path (typically outer/oncoming lane)
+    #             # Negative signed_dist = RIGHT of path (typically inner/cutting corner)
+    #             if signed_dist > 0:
+    #                 # OUTER BOUNDARY: Strong penalty (10x) - was 100x, too harsh
+    #                 # Reduced from 100x to 10x to prevent reward explosion
+    #                 corner_penalty = -penalty_weight * 10.0 * violation_dist
+    #                 total_penalty += corner_penalty
+                    
+    #                 # TERMINATE immediately if ANY outer violation > 0.5m
+    #                 if violation_dist > 0.5:
+    #                     should_terminate = True
+    #             # Relax corridor near bay entrance
+    #             if abs(cx_bay) < 0.8:   # entrance band
+    #                 penalty_weight = 0.2
+
+    #             else:
+    #                 # INNER BOUNDARY: NO PENALTY (0x) - allow corner cutting
+    #                 # This is intentional - agent can cut corners to optimize path
+    #                 corner_penalty = 0.0
+        
+    #     return total_penalty, should_terminate
+
+    
 
 
 # ============================================================================
@@ -365,8 +532,8 @@ class ParkingRewardCalculator:
         self,
         bay_length: float = 5.5,
         bay_width: float = 2.7,
-        alignment_reward_weight: float = 50.0,  # v38: REDUCED from 300.0 to balance with penalties
-        success_bonus: float = 50.0,  # v38: REDUCED from 200.0 to balance with penalties
+        alignment_reward_weight: float = 50.0,  # REDUCED from 300.0 to balance with penalties
+        success_bonus: float = 50.0,  # REDUCED from 200.0 to balance with penalties
     ):
         """
         Args:
@@ -391,7 +558,7 @@ class ParkingRewardCalculator:
         steering_angle: float = 0.0,
     ) -> Tuple[float, float]:
         """
-        v37: GAUSSIAN (EXPONENTIAL) PARKING REWARD
+        GAUSSIAN (EXPONENTIAL) PARKING REWARD
         
         Replaces linear thresholds with smooth exponential kernels (Gaussian).
         Reward = W * exp(-d_lat²/σ_lat) * exp(-d_long²/σ_long) * exp(-θ²/σ_theta)
@@ -429,7 +596,7 @@ class ParkingRewardCalculator:
         dist_factor = np.exp(- (dist_to_goal ** 2) / (2 * 4.0 ** 2))
         
         # Final calculation
-        # Weight = 50.0 (v38: reduced from 300.0 to balance with penalties)
+        # Weight = 50.0 (reduced from 300.0 to balance with penalties)
         continuous_reward = self.alignment_reward_weight * alignment_score * dist_factor
         
         # --- BONUS: Deep Target Incentive ---
@@ -437,8 +604,14 @@ class ParkingRewardCalculator:
         if lat_reward > 0.8 and yaw_reward > 0.8:
             # Add a linear push to drive to the back of the bay
             # cx_bay is negative when going deep.
-            continuous_reward += 10.0 * long_reward
-
+            # continuous_reward += 10.0 * long_reward
+            # STRONG depth pull into bay
+            if dist_to_goal < 4.0:  # near entrance
+                depth_pull = np.clip(-cx_bay, 0.0, 3.0)
+                continuous_reward += 40.0 * depth_pull     # was 10.0 → now 40.0
+        # NEW: Mild depth pull even before perfect alignment
+        if dist_to_goal < 6.0:
+            continuous_reward += 5.0 * np.clip(-cx_bay, 0.0, 3.0)
         return continuous_reward, alignment_score
     
     def calculate_phased_parking_reward(
@@ -451,7 +624,7 @@ class ParkingRewardCalculator:
         dist_to_goal: float,
     ) -> Tuple[float, str]:
         """
-        v33.1: DETAILED 8-POINT PHASED PARKING REWARD
+        DETAILED 8-POINT PHASED PARKING REWARD
         
         Uses ALL 8 reference points to guide car through parking:
         
@@ -476,7 +649,7 @@ class ParkingRewardCalculator:
         if dist_to_goal > 8.0:
             return 0.0, "TOO_FAR"
         
-        # Bay dimensions (v41: match ParkingEnv values)
+        # Bay dimensions (: match ParkingEnv values)
         bay_width = 2.7
         bay_length = 5.5
         half_w = bay_width / 2.0
@@ -618,10 +791,76 @@ class ParkingRewardCalculator:
         """
         return (
             abs(cy_bay) < success_cy
-            and abs(yaw_err) < success_yaw  # v38.7: CRITICAL FIX - was missing abs()!
+            and abs(yaw_err) < success_yaw  # CRITICAL FIX - was missing abs()!
             and abs(cx_bay) < 3.0
         )
     
+    # def calculate_phase_blended_reward(
+    #     self,
+    #     dist_to_goal: float,
+    #     cx_bay: float,
+    #     cy_bay: float,
+    #     yaw_err: float,
+    # ) -> float:
+    #     """
+    #     Phase-adaptive reward blending (navigation -> approach -> parking).
+        
+    #     Args:
+    #         dist_to_goal: Distance to goal bay center
+    #         cx_bay: Longitudinal offset in bay frame
+    #         cy_bay: Lateral offset in bay frame
+    #         yaw_err: Heading error
+            
+    #     Returns:
+    #         Blended reward
+    #     """
+
+    #     # Make sure we treat yaw as magnitude
+    #     yaw_abs = abs(yaw_err)
+        
+    #     # Phase weights (smooth transitions)
+    #     w_nav = float(np.clip((dist_to_goal - 2.0) / 3.0, 0.0, 1.0))
+    #     w_park = float(np.clip((2.0 - dist_to_goal) / 2.0, 0.0, 1.0))
+    #     w_approach = 1.0 - max(w_nav, w_park)
+        
+    #     # Navigation: get closer
+    #     nav_term = -0.15 * dist_to_goal
+        
+    #     # Approach: distance + yaw alignment
+    #     approach_term = -0.2 * dist_to_goal - 0.8 * yaw_abs
+        
+    #     # # Parking: bay-frame precision
+    #     # target_depth = 2.0
+    #     # depth_err = abs(abs(cx_bay) - target_depth)
+    #     # park_term = -0.8 * abs(cy_bay) - 0.6 * yaw_abs - 0.3 * depth_err
+        
+    #     # Parking: bay-frame precision
+    #     # aim for cx_bay ≈ 0 (centered in bay frame)
+    #     # target_depth = 0.0
+    #     # depth_err = abs(abs(cx_bay) - target_depth)
+    #     # park_term = -0.8 * abs(cy_bay) - 0.6 * yaw_abs - 0.3 * depth_err
+    #     park_term = -0.8 * abs(cy_bay) - 0.6 * yaw_abs
+
+    #     # Optional: reward going deeper into the bay (assuming cx_bay < 0 inside)
+    #     depth_inside = np.clip(-cx_bay, 0.0, 3.0)  # 0 at entrance/outside, up to ~3m deep
+    #     park_term += 0.3 * depth_inside
+
+    #     # Weighted blend
+    #     reward = (
+    #         w_nav * nav_term +
+    #         w_approach * approach_term +
+    #         w_park * park_term
+    #     )
+        
+    #     # ---- Anti-hover around entrance line ----
+    #     # If we're close to the goal but still sitting near cx_bay ≈ 0
+    #     # (entrance band), apply a small extra penalty so PPO prefers
+    #     # going deeper instead of parking ON the line.
+    #     if dist_to_goal < 4.0 and abs(cx_bay) < 0.7:
+    #         reward -= 0.5  # tune if needed
+
+    #     return reward
+
     def calculate_phase_blended_reward(
         self,
         dist_to_goal: float,
@@ -631,39 +870,49 @@ class ParkingRewardCalculator:
     ) -> float:
         """
         Phase-adaptive reward blending (navigation -> approach -> parking).
-        
-        Args:
-            dist_to_goal: Distance to goal bay center
-            cx_bay: Longitudinal offset in bay frame
-            cy_bay: Lateral offset in bay frame
-            yaw_err: Heading error
-            
-        Returns:
-            Blended reward
+
+        Fixes:
+        - Remove artificial optimum at cx_bay ≈ 0 (entrance line).
+        - Reward going deeper into the bay (assuming cx_bay < 0 inside).
+        - Extra penalty for hovering on the entrance band.
         """
+        # Treat yaw as magnitude
+        yaw_abs = abs(yaw_err)
+
         # Phase weights (smooth transitions)
         w_nav = float(np.clip((dist_to_goal - 2.0) / 3.0, 0.0, 1.0))
         w_park = float(np.clip((2.0 - dist_to_goal) / 2.0, 0.0, 1.0))
         w_approach = 1.0 - max(w_nav, w_park)
-        
+
         # Navigation: get closer
         nav_term = -0.15 * dist_to_goal
-        
+
         # Approach: distance + yaw alignment
-        approach_term = -0.2 * dist_to_goal - 0.8 * yaw_err
-        
-        # Parking: bay-frame precision
-        target_depth = 2.0
-        depth_err = abs(abs(cx_bay) - target_depth)
-        park_term = -0.8 * abs(cy_bay) - 0.6 * yaw_err - 0.3 * depth_err
-        
+        approach_term = -0.2 * dist_to_goal - 0.8 * yaw_abs
+
+        # Parking: focus on lateral + yaw; handle depth separately
+        park_term = -0.8 * abs(cy_bay) - 0.6 * yaw_abs
+
+        # Depth incentive: reward going deeper into bay
+        # Assumes cx_bay < 0 when car is inside the bay.
+        depth_inside = np.clip(-cx_bay, 0.0, 3.0)  # 0 at entrance, up to ~3 m deep
+        park_term += 0.3 * depth_inside
+
         # Weighted blend
         reward = (
             w_nav * nav_term +
             w_approach * approach_term +
             w_park * park_term
         )
-        
+
+        # ---- Anti-hover around entrance line ----
+        # If close to goal but still sitting near cx_bay ≈ 0 (entrance band),
+        # add extra penalty so PPO prefers to commit into the bay.
+        if dist_to_goal < 4.0 and abs(cx_bay) < 0.7:
+            # reward -= 0.5  # ≈ typical |park_term| near entrance; discourages 'line parking'
+            band_penalty = 0.3 * (0.8 + 0.6)  # 30% of typical (|cy|, |yaw|) weights
+            reward -= band_penalty
+
         return reward
 
 
@@ -729,10 +978,11 @@ def calculate_goal_progress_reward(
     
     goal_progress = prev_dist_to_goal - dist_to_goal
     
-    if goal_progress > 0:  # Moving closer
+    # Only reward making progress when moving forward-ish
+    if goal_progress > 0:
         return weight * goal_progress
-    
-    return 0.0  # No penalty for moving away (waypoint logic handles that)
+
+    return 0.0
 
 
 # ============================================================================

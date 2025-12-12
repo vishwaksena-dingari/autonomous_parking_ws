@@ -28,7 +28,7 @@ class EnhancedLidar:
     def __init__(
         self,
         num_rays: int = 64,
-        max_range: float = 10.0,
+        max_range: float = 20.0,
         noise_std: float = 0.02,
         min_range: float = 0.1
     ):
@@ -55,7 +55,8 @@ class EnhancedLidar:
         world_bounds: Tuple[float, float, float, float],
         bays: List[Dict],
         occupied_bays: List[Dict],
-        dynamic_obstacles: List = None
+        dynamic_obstacles: List = None,
+        goal_bay_id: Optional[str] = None,
     ) -> np.ndarray:
         """
         Perform complete 360° lidar scan.
@@ -89,28 +90,34 @@ class EnhancedLidar:
             )
             min_dist = min(min_dist, bound_dist)
             
-            # 2. Check parking bay boundaries
-            for bay in bays:
-                bay_dist = self._ray_bay_intersection(
-                    origin=(x, y),
-                    direction=ray_dir,
-                    bay=bay,
-                    bay_width=2.7,
-                    bay_length=5.5
-                )
-                min_dist = min(min_dist, bay_dist)
+            # # 2. Check parking bay boundaries (skip if bays is None)
+            # if bays:
+            #     for bay in bays:
+            #         # do NOT clip on goal bay
+            #         if goal_bay_id is not None and bay.get("id") == goal_bay_id:
+            #             continue
+
+            #         bay_dist = self._ray_bay_intersection(
+            #             origin=(x, y),
+            #             direction=ray_dir,
+            #             bay=bay,
+            #             bay_width=2.7,
+            #             bay_length=5.5
+            #         )
+            #         min_dist = min(min_dist, bay_dist)
             
-            # 3. Check occupied bays (parked cars)
-            for occupied_bay in occupied_bays:
-                car_dist = self._ray_box_intersection(
-                    origin=(x, y),
-                    direction=ray_dir,
-                    box_center=(occupied_bay['x'], occupied_bay['y']),
-                    box_yaw=occupied_bay['yaw'],
-                    box_length=4.2,  # Car length
-                    box_width=1.9    # Car width
-                )
-                min_dist = min(min_dist, car_dist)
+            # 3. Check occupied bays (parked cars) – also optional
+            if occupied_bays:
+                for occupied_bay in occupied_bays:
+                    car_dist = self._ray_box_intersection(
+                        origin=(x, y),
+                        direction=ray_dir,
+                        box_center=(occupied_bay['x'], occupied_bay['y']),
+                        box_yaw=occupied_bay['yaw'],
+                        box_length=4.2,
+                        box_width=1.9
+                    )
+                    min_dist = min(min_dist, car_dist)
             
             # 4. Check dynamic obstacles
             if dynamic_obstacles:

@@ -13,6 +13,9 @@ setup(
         f"{package_name}.planning",
         f"{package_name}.sensors",
         f"{package_name}.obstacles",
+        f"{package_name}.utils",
+        f"{package_name}.rewards",
+
     ],
     data_files=[
         # ament index
@@ -26,15 +29,22 @@ setup(
         # ALL yaml configs
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
     ],
+    # install_requires=[
+    #     "setuptools",
+    #     "pyyaml",
+    #     "numpy",
+    #     "matplotlib",
+    #     "scipy",  # Required for B-spline path smoothing
+    #     "gymnasium",  # Required for RL environments
+    #     "stable-baselines3",  # Required for PPO training
+    #     "tensorboard",  # Required for training monitoring
+    # ],
+    # Core libs installed via apt-get in Docker to prevent ARM compilation crashes
+    # "numpy", "scipy", "matplotlib", "pyyaml",
     install_requires=[
-        "setuptools",
-        "pyyaml",
-        "numpy",
-        "matplotlib",
-        "scipy",  # Required for B-spline path smoothing
-        "gymnasium",  # Required for RL environments
-        "stable-baselines3",  # Required for PPO training
-        "tensorboard",  # Required for training monitoring
+        "gymnasium",
+        "stable-baselines3",
+        "tensorboard",
     ],
     zip_safe=True,
     maintainer="vd",

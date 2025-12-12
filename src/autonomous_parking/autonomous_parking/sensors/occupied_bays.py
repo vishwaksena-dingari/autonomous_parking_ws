@@ -10,7 +10,7 @@ Handles which parking bays contain parked cars, supporting:
 """
 
 import random
-import math  # v40 FIX: Needed for pi/2 rotation
+import math  # Needed for pi/2 rotation
 from typing import List, Dict, Optional
 
 
@@ -35,7 +35,8 @@ class OccupiedBayManager:
         """
         self.all_bays = all_bays
         self.base_occupancy_rate = occupancy_rate
-        self.occupied_bay_ids = []
+        # self.occupied_bay_ids = []
+        self.occupied_bay_ids: set[str] = set()
         self.occupied_bay_objects = []
     
     def randomize_occupancy(
@@ -59,7 +60,8 @@ class OccupiedBayManager:
         # Randomly select bays to occupy
         occupied = random.sample(self.all_bays, k=num_occupied)
         
-        self.occupied_bay_ids = [bay['id'] for bay in occupied]
+        # self.occupied_bay_ids = [bay['id'] for bay in occupied]
+        self.occupied_bay_ids = {bay['id'] for bay in occupied}
         self.occupied_bay_objects = occupied
         
         return occupied
@@ -104,7 +106,7 @@ class OccupiedBayManager:
         return {
             'x': bay['x'],
             'y': bay['y'],
-            'yaw': bay['yaw'] + (math.pi / 2), # v40 FIX: Bays are Vertical at 0, Cars are Horizontal at 0. Add 90 deg.
+            'yaw': bay['yaw'], # A parked car's yaw is the same as the bay's yaw.
             'length': 4.2,  # m (compact car)
             'width': 1.9    # m
         }
@@ -128,15 +130,21 @@ class OccupiedBayManager:
         Args:
             occupied_bay_ids: List of bay ID strings to occupy
         """
-        self.occupied_bay_ids = occupied_bay_ids
+        # self.occupied_bay_ids = occupied_bay_ids
+        # self.occupied_bay_objects = [
+        #     bay for bay in self.all_bays
+        #     if bay['id'] in occupied_bay_ids
+        # ]
+        self.occupied_bay_ids = set(occupied_bay_ids)
         self.occupied_bay_objects = [
             bay for bay in self.all_bays
-            if bay['id'] in occupied_bay_ids
+            if bay['id'] in self.occupied_bay_ids
         ]
     
     def clear_occupancy(self):
         """Clear all occupied bays (empty lot)."""
-        self.occupied_bay_ids = []
+        # self.occupied_bay_ids = []
+        self.occupied_bay_ids = set()
         self.occupied_bay_objects = []
     
     def get_occupancy_rate(self) -> float:

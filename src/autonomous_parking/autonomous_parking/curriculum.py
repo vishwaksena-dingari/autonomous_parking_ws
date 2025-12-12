@@ -46,20 +46,20 @@ class CurriculumStage:
     # v41: Baby Parking Support
     disable_obstacles: bool = False
     lateral_offset: Optional[float] = None # Lateral offset in meters for aligned spawn
-
+    success_threshold: float = 0.80
     # Optional note
     note: str = ""
 
 
 class CurriculumManager:
     """
-    v15 Micro-Curriculum Manager
+    v42 Micro-Curriculum Manager (5-stage version)
     
     Responsibilities:
-    - Manages 15 progressive stages
+    - Manages 5 progressive stages (S0-S4)
     - Tracks total steps and episodes
     - Maintains rolling success window
-    - Automatically advances stages
+    - Automatically advances stages (steps + success-based)
     - Implements replay mechanism to prevent forgetting
     """
     
@@ -145,6 +145,37 @@ class CurriculumManager:
         # Check advancement
         self._maybe_advance_stage()
     
+    # def _maybe_advance_stage(self) -> None:
+    #     """Advance to next stage if conditions met"""
+    #     if self.current_stage_idx >= len(self.stages) - 1:
+    #         return  # Final stage
+        
+    #     stage = self.current_stage
+        
+    #     # 1. Minimum steps requirement (don't advance too fast)
+    #     if self.total_steps < stage.advance_at_steps:
+    #         return
+        
+    #     # 2. Success rate requirement (Competence-based)
+    #     success_rate = (sum(self._window_success) / len(self._window_success) 
+    #                    if self._window_success else 0.0)
+        
+    #     # Require 80% success to advance (User Request: "Only further if success")
+    #     if success_rate < 0.80:
+    #         return
+        
+    #     # Advance!
+    #     self.current_stage_idx += 1
+    #     next_stage = self.current_stage
+    #     print(f"\n{'*' * 70}")
+    #     print(f"📚 CURRICULUM STAGE ADVANCE")
+    #     print(f"   From: {stage.name}")
+    #     print(f"   To:   {next_stage.name} (Stage {self.current_stage_idx + 1}/{len(self.stages)})")
+    #     print(f"   Steps: {self.total_steps:,} | Episodes: {self.total_episodes:,}")
+    #     print(f"   Recent Success: {success_rate:.1%}")
+    #     print(f"   Replay Prob: {next_stage.replay_prob:.0%}")
+    #     print(f"{'*' * 70}\n")
+    
     def _maybe_advance_stage(self) -> None:
         """Advance to next stage if conditions met"""
         if self.current_stage_idx >= len(self.stages) - 1:
@@ -158,10 +189,12 @@ class CurriculumManager:
         
         # 2. Success rate requirement (Competence-based)
         success_rate = (sum(self._window_success) / len(self._window_success) 
-                       if self._window_success else 0.0)
+                        if self._window_success else 0.0)
         
-        # Require 80% success to advance (User Request: "Only further if success")
-        if success_rate < 0.80:
+        # Per-stage threshold (default 0.80 for backwards compatibility)
+        required_success = getattr(stage, "success_threshold", 0.80)
+        
+        if success_rate < required_success:
             return
         
         # Advance!
@@ -175,7 +208,8 @@ class CurriculumManager:
         print(f"   Recent Success: {success_rate:.1%}")
         print(f"   Replay Prob: {next_stage.replay_prob:.0%}")
         print(f"{'*' * 70}\n")
-    
+
+
     def _sample_replay_stage(self) -> int:
         """Sample earlier stage (weighted toward recent)"""
         if self.current_stage_idx == 0:
@@ -187,7 +221,255 @@ class CurriculumManager:
         weights = weights / weights.sum()
         
         return np.random.choice(self.current_stage_idx, p=weights)
+
+    def log_status(self) -> None:
+        """Print current curriculum status"""
+        stage = self.current_stage
+        success_rate = (sum(self._window_success) / len(self._window_success) 
+                       if self._window_success else 0.0)
+        
+        print(f"Curriculum: Stage {self.current_stage_idx + 1}/{len(self.stages)} - {stage.name}")
+        print(f"  Steps: {self.total_steps:,} | Episodes: {self.total_episodes:,}")
+        print(f"  Success: {success_rate:.1%} | Replay: {stage.replay_prob:.0%}")
     
+    # def _build_stages(self) -> List[CurriculumStage]:
+    #     """
+    #     5-stage practical curriculum for autonomous parking (v42).
+
+    #     S0: Baby aligned parking, no obstacles (lot_a, A2/A3)
+    #     S1: Same bays, obstacles ON, longer spawn
+    #     S2: A-row multi-bay (A1–A5) in lot_a
+    #     S3: Full lot_a (all bays, both rows)
+    #     S4: Full environment (both lots, all bays)
+
+    #     Stage advancement:
+    #     - Requires total_steps >= advance_at_steps for that stage
+    #     - AND rolling success rate >= 80% (see _maybe_advance_stage)
+    #     """
+
+    #     def rad(deg: float) -> float:
+    #         return math.radians(deg)
+
+    #     stages = [
+    #         # -------- S0: Baby aligned, no obstacles --------
+    #         # CurriculumStage(
+    #         #     name="S1: Baby aligned - lot_a A2/A3, no obstacles",
+    #         #     lots=["lot_b"],
+    #         #     allowed_bays=["H2", "H3"],
+    #         #     allowed_orientations=None,   # use whatever is in bays.yaml
+    #         #     max_spawn_dist=8.0,          # short straight distance
+    #         #     spawn_side=None,             # let env choose
+    #         #     aligned_spawn=False,          # SIMPLE ALIGNED PATH branch in WaypointEnv
+    #         #     # disable_obstacles=True,      # only car + goal (all bays treated open)
+    #         #     disable_obstacles=False,
+    #         #     lateral_offset=None,
+    #         #     advance_at_steps=40_000,
+    #         #     replay_prob=0.0,
+    #         #     success_threshold=0.70, 
+    #         #     note="Straight-in aligned spawn to learn braking + final alignment."
+    #         # ),
+
+    #         # # -------- S1: Same bays, obstacles ON, longer spawn --------
+    #         # CurriculumStage(
+    #         #     name="S1: A2/A3 with obstacles, longer spawn",
+    #         #     lots=["lot_a"],
+    #         #     allowed_bays=["A2", "A3"],
+    #         #     allowed_orientations=None,
+    #         #     max_spawn_dist=14.0,         # more navigation required
+    #         #     spawn_side=None,
+    #         #     aligned_spawn=False,         # full A* + waypoints
+    #         #     disable_obstacles=False,     # normal environment obstacles
+    #         #     lateral_offset=None,
+    #         #     advance_at_steps=80_000,
+    #         #     replay_prob=0.10,
+    #         #     success_threshold=0.70, 
+    #         #     note="Introduce A* navigation and obstacles, but keep bays simple."
+    #         # ),
+
+    #         # -------- S2: A-row multi-bay in lot_a --------
+    #         # CurriculumStage(
+    #         #     name="S2: A-row multi-bay (A1-A5)",
+    #         #     lots=["lot_a"],
+    #         #     allowed_bays=["A1", "A2", "A3", "A4", "A5"],
+    #         #     allowed_orientations=None,   # same orientation family, multiple bays
+    #         #     max_spawn_dist=18.0,
+    #         #     spawn_side=None,
+    #         #     aligned_spawn=False,
+    #         #     disable_obstacles=False,
+    #         #     lateral_offset=None,
+    #         #     advance_at_steps=140_000,
+    #         #     replay_prob=0.20,
+    #         #     success_threshold=0.65, 
+    #         #     note="Generalize across neighboring A-row bays in lot_a."
+    #         # ),
+
+    #         # -------- S3: Full lot_a (all bays, both rows) --------
+    #         CurriculumStage(
+    #             name="S3: Full lot_a (A and B rows)",
+    #             lots=["lot_a"],
+    #             allowed_bays=None,           # all bays in lot_a
+    #             allowed_orientations=None,   # both A-row and B-row orientations
+    #             max_spawn_dist=22.0,
+    #             spawn_side=None,
+    #             aligned_spawn=False,
+    #             disable_obstacles=False,
+    #             lateral_offset=None,
+    #             advance_at_steps=200_000,
+    #             replay_prob=0.30,
+    #             success_threshold=0.60, 
+    #             note="All bays in lot_a, full navigation + parking."
+    #         ),
+
+    #         # -------- S4: Full environment (both lots) --------
+    #         CurriculumStage(
+    #             name="S4: Full environment - both lots",
+    #             lots=["both"],               # lot_a + lot_b
+    #             allowed_bays=None,           # all bays
+    #             allowed_orientations=None,   # all orientations
+    #             max_spawn_dist=None,         # env default
+    #             spawn_side=None,
+    #             aligned_spawn=False,
+    #             disable_obstacles=False,
+    #             lateral_offset=None,
+    #             advance_at_steps=10**9,      # final stage, effectively no further advance
+    #             replay_prob=0.40,
+    #             success_threshold=0.60, 
+    #             note="Final production-like distribution over both lots."
+    #         ),
+    #     ]
+
+    #     return stages
+
+
+    # def _build_stages(self) -> List[CurriculumStage]:
+    #     """
+    #     5-stage practical curriculum for autonomous parking.
+
+    #     S0: Baby aligned parking, no obstacles (lot_a, A2/A3)
+    #     S1: Same bays, obstacles ON, longer spawn
+    #     S2: A-row multi-bay (A1–A5) in lot_a
+    #     S3: Full lot_a (all bays, both rows)
+    #     S4: Full environment (both lots, all bays)
+    #     """
+    #     def rad(deg: float) -> float:
+    #         return math.radians(deg)
+
+    #     stages = [
+    #         # -------- S0: Baby aligned, no obstacles --------
+    #         CurriculumStage(
+    #             name="S0: Baby aligned - lot_a A2/A3, no obstacles",
+    #             lots=["lot_a"],
+    #             allowed_bays=["A2", "A3"],
+    #             allowed_orientations=None,   # use whatever is in bays.yaml
+    #             max_spawn_dist=8.0,          # short straight distance
+    #             spawn_side=None,             # let env choose
+    #             aligned_spawn=True,          # uses SIMPLE ALIGNED PATH branch in WaypointEnv
+    #             disable_obstacles=True,      # only car + goal
+    #             lateral_offset=None,
+    #             advance_at_steps=40_000,
+    #             replay_prob=0.0,
+    #             note="Straight-in aligned spawn to learn braking + final alignment."
+    #         ),
+
+    #         # -------- S1: Same bays, obstacles ON, longer spawn --------
+    #         CurriculumStage(
+    #             name="S1: A2/A3 with obstacles, longer spawn",
+    #             lots=["lot_a"],
+    #             allowed_bays=["A2", "A3"],
+    #             allowed_orientations=None,
+    #             max_spawn_dist=14.0,         # more navigation required
+    #             spawn_side=None,
+    #             aligned_spawn=False,         # use full A* + waypoints
+    #             disable_obstacles=False,     # normal environment obstacles
+    #             lateral_offset=None,
+    #             advance_at_steps=80_000,
+    #             replay_prob=0.10,
+    #             note="Introduce A* navigation and obstacles, but keep bays simple."
+    #         ),
+
+    #         # -------- S2: A-row multi-bay in lot_a --------
+    #         CurriculumStage(
+    #             name="S2: A-row multi-bay (A1–A5)",
+    #             lots=["lot_a"],
+    #             allowed_bays=["A1", "A2", "A3", "A4", "A5"],
+    #             allowed_orientations=None,   # same orientation family, multiple bays
+    #             max_spawn_dist=18.0,
+    #             spawn_side=None,
+    #             aligned_spawn=False,
+    #             disable_obstacles=False,
+    #             lateral_offset=None,
+    #             advance_at_steps=140_000,
+    #             replay_prob=0.20,
+    #             note="Generalize across neighboring A-row bays in lot_a."
+    #         ),
+
+    #         # -------- S3: Full lot_a (all bays, both rows) --------
+    #         CurriculumStage(
+    #             name="S3: Full lot_a (A and B rows)",
+    #             lots=["lot_a"],
+    #             allowed_bays=None,           # all bays in lot_a
+    #             allowed_orientations=None,   # both A-row and B-row orientations
+    #             max_spawn_dist=22.0,
+    #             spawn_side=None,
+    #             aligned_spawn=False,
+    #             disable_obstacles=False,
+    #             lateral_offset=None,
+    #             advance_at_steps=200_000,
+    #             replay_prob=0.30,
+    #             note="All bays in lot_a, full navigation + parking."
+    #         ),
+
+    #         # -------- S4: Full environment (both lots) --------
+    #         CurriculumStage(
+    #             name="S4: Full environment - both lots",
+    #             lots=["both"],               # lot_a + lot_b
+    #             allowed_bays=None,           # all bays
+    #             allowed_orientations=None,   # all orientations
+    #             max_spawn_dist=None,         # env default
+    #             spawn_side=None,
+    #             aligned_spawn=False,
+    #             disable_obstacles=False,
+    #             lateral_offset=None,
+    #             advance_at_steps=10**9,      # final stage, effectively no further advance
+    #             replay_prob=0.40,
+    #             note="Final production-like distribution over both lots."
+    #         ),
+    #     ]
+
+    #     return stages
+
+
+    # def _build_stages(self) -> List[CurriculumStage]:
+    #     """
+    #     Simplified single-stage curriculum.
+
+    #     - Uses both lots (A and B)
+    #     - All bays allowed (no filtering)
+    #     - All orientations allowed
+    #     - No replay, no progression (single fixed distribution)
+    #     """
+    #     def rad(deg: float) -> float:
+    #         return math.radians(deg)
+
+    #     stages = [
+    #         CurriculumStage(
+    #             name="S0: Single-stage full environment",
+    #             lots=["both"],              # lot_a + lot_b
+    #             allowed_bays=None,          # all bays
+    #             allowed_orientations=None,  # all orientations
+    #             max_spawn_dist=None,        # use env default
+    #             spawn_side=None,            # random side
+    #             aligned_spawn=False,
+    #             disable_obstacles=False,    # let env handle obstacles
+    #             lateral_offset=None,
+    #             advance_at_steps=10**9,     # effectively never advances
+    #             replay_prob=0.0,
+    #             note="Single fixed distribution over full environment"
+    #         ),
+    #     ]
+
+    #     return stages
+
     def _build_stages(self) -> List[CurriculumStage]:
         """
         v42 IMPROVED Curriculum - Fixes for logical progression issues
@@ -208,8 +490,8 @@ class CurriculumManager:
             # ===== PHASE 0: BABY PARKING (0-40k) =====
             CurriculumStage(
                 name="S0: Baby - Straight aligned, no obstacles",
-                lots=["lot_b"],
-                allowed_bays=["H3", "V3"],
+                lots=["lot_a"],
+                allowed_bays=["A2", "A3"],
                 allowed_orientations=[rad(0.0)],
                 max_spawn_dist=9.0,
                 spawn_side=None,
@@ -227,7 +509,7 @@ class CurriculumManager:
                 allowed_orientations=[rad(180.0)],
                 max_spawn_dist=6.0,
                 spawn_side=None,
-                aligned_spawn=True,
+                aligned_spawn=False,
                 disable_obstacles=True,
                 lateral_offset=1.0,
                 advance_at_steps=40_000,
@@ -414,13 +696,3 @@ class CurriculumManager:
         ]
         
         return stages
-    
-    def log_status(self) -> None:
-        """Print current curriculum status"""
-        stage = self.current_stage
-        success_rate = (sum(self._window_success) / len(self._window_success) 
-                       if self._window_success else 0.0)
-        
-        print(f"Curriculum: Stage {self.current_stage_idx + 1}/{len(self.stages)} - {stage.name}")
-        print(f"  Steps: {self.total_steps:,} | Episodes: {self.total_episodes:,}")
-        print(f"  Success: {success_rate:.1%} | Replay: {stage.replay_prob:.0%}")

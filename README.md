@@ -1,230 +1,178 @@
-# Autonomous Parking Project
+# Autonomous Parking Agent
 
-## 🎯 Current Status: v14.0
+Hierarchical Reinforcement Learning agent for autonomous parking with 16-stage curriculum learning, developed for ROS 2 Humble.
 
-**Latest Training Run**: `hierarchical_v14_0_parking_fixes`  
-**Status**: In Progress  
-**Key Improvements**: Enhanced parking success, road compliance, heading alignment
-
----
-
-## 📁 Project Structure
-
-```
-autonomous_parking_ws/
-├── src/autonomous_parking/          # Main source code
-│   ├── env2d/parking_env.py        # Core environment (v14.0)
-│   ├── sb3_train_hierarchical.py   # Training script
-│   └── sb3_eval_hierarchical.py    # Evaluation script
-├── config/                          # Parking lot configurations
-│   └── bays.yaml                   # Bay positions for lot_a & lot_b
-├── results/                         # Training outputs
-│   └── ppo_hierarchical/           # Saved models
-├── spawn_verification/              # Spawn system test images
-├── verify_spawn_logic.py           # Spawn verification script
-├── TRAINING_ANALYSIS_v13_2.md      # v13.2 analysis
-├── V14_0_UPDATE_SUMMARY.md         # v14.0 changes
-└── README.md                        # This file
-```
+[![ROS 2 Humble](https://img.shields.io/badge/ROS2-Humble-blue)](https://docs.ros.org/en/humble/)
+[![RL](https://img.shields.io/badge/Stable--Baselines3-PPO-brightgreen)](https://stable-baselines3.readthedocs.io/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
-## 🚀 Quick Start
+## ⚡ TL;DR - Quick Start (Copy & Paste)
 
-### Training
+Here are the **exact commands** to run the project immediately.
+
+### Option 1: Docker
+*Run this from the folder where you extracted the project.*
+
 ```bash
-cd src/autonomous_parking
-../../.venv/bin/python -m autonomous_parking.sb3_train_hierarchical \
-  --total-steps 50000 \
-  --run-name my_training_run \
-  --n-envs 4
+# cd autonomous_parking_ws && \
+docker build -t autonomous_parking_node . && \
+docker run -it --rm --net=host \
+    -v $(pwd)/src:/root/autonomous_parking_ws/src \
+    autonomous_parking_node
 ```
 
-### Evaluation
+### Option 2: Local Run
+*Requires Python 3.8+ and ROS 2 Humble installed.*
+
 ```bash
-../../.venv/bin/python -m autonomous_parking.sb3_eval_hierarchical \
-  --lot lot_a \
-  --model-dir results/ppo_hierarchical/my_training_run
+# cd autonomous_parking_ws && \
+chmod +x run_local.sh && \
+./run_local.sh
 ```
 
-### Spawn Verification
+---
+
+## 🚀 Detailed Guide
+
+
+Follow these steps to build and run the agent in a Docker container.
+
+### 1. Requirements
+*   **Docker Desktop** installed and running.
+*   **OS:** Windows, Mac (Intel/Apple Silicon), or Linux.
+    *   *Note: Apple Silicon (M1/M2/M3) users may see a platform warning. This is normal and harmless.*
+
+### 2. Build the Docker Image
+Navigate to the project root (`autonomous_parking_ws`) and run:
+
 ```bash
-python verify_spawn_logic.py
-# Check spawn_verification/ folder for images
+docker build -t autonomous_parking_node .
 ```
+*(This may take a few minutes. If you see warnings about "platform linux/amd64", you can safely ignore them.)*
 
 ---
 
-## 📊 Version History
+### 3. Run the Agent (Menu System)
 
-### v14.0 (Current) - Parking Success Improvements
-**Date**: 2025-11-20  
-**Focus**: Fix parking success rate and road compliance
+We provide a unified interactive menu for both Training and Evaluation.
 
-**Key Changes**:
-- Relaxed Level 1 tolerances (0.5m→0.8m, 28°→46°)
-- Enhanced road compliance (continuous reward + stronger penalty)
-- Improved heading alignment (4x stronger when close)
-- Added bay orientation alignment reward
-
-**Expected Results**:
-- Success rate: 0% → >50%
-- Min distance: 5.34m → <1.5m
-- Better road compliance
-
-### v13.2 - Final Spawn System
-**Date**: 2025-11-20  
-**Focus**: Perfect spawn system with 100% in-bounds guarantee
-
-**Achievements**:
-- 100% spawn success rate (60/60 tests)
-- Red front stripe for orientation
-- Dynamic offset clamping
-- Correct road coordinates
-
-**Issues Found**:
-- Agent drives away from goal after reaching waypoints
-- Yaw alignment failure (~2.0 rad error)
-- No parking successes in evaluation
-
-### v13.0 - Auto-Curriculum
-**Date**: 2025-11-18  
-**Focus**: 3-level curriculum learning
-
-**Features**:
-- Level 1: Easy (close spawns, aligned)
-- Level 2: Medium (farther, random yaw)
-- Level 3: Hard (entrance spawns)
-
----
-
-## 🔧 Key Features
-
-### Environment (parking_env.py)
-- **Spawn System**: Geometry-aware, 100% in-bounds
-- **Curriculum**: 3-level progressive difficulty
-- **Reward Function**: Exponential distance, alignment, road compliance
-- **Sensors**: 64-ray lidar, position, velocity
-- **Visualization**: Red front stripe, green goal bay
-
-### Training (sb3_train_hierarchical.py)
-- **Algorithm**: PPO (Proximal Policy Optimization)
-- **Parallel Envs**: 4-8 simultaneous environments
-- **Evaluation**: Every 2,500 steps
-- **Checkpointing**: Best model auto-saved
-
----
-
-## 📈 Performance Metrics
-
-### Training Metrics
-- **Mean Reward**: Target < -1,000 (lower is better)
-- **Min Distance**: Target < 1.0m
-- **Success Rate**: Target > 50%
-- **Episode Length**: 300 steps max
-
-### Success Criteria
-- **Level 1**: Position < 0.8m, Yaw < 0.8 rad (46°)
-- **Level 2**: Position < 0.5m, Yaw < 0.5 rad (28°)
-- **Level 3**: Position < 0.3m, Yaw < 0.3 rad (17°)
-
----
-
-## 🐛 Known Issues & Solutions
-
-### Issue: Agent drives away from goal
-**Status**: Fixed in v14.0  
-**Solution**: Enhanced heading alignment, bay orientation reward
-
-### Issue: Yaw alignment failure
-**Status**: Fixed in v14.0  
-**Solution**: 4x stronger heading weight when close, bay alignment reward
-
-### Issue: Poor road compliance
-**Status**: Fixed in v14.0  
-**Solution**: Continuous on-road reward, 2x stronger off-road penalty
-
----
-
-## 📝 Configuration
-
-### Parking Lots
-- **lot_a**: Simple horizontal road, 12 bays (A1-A6, B1-B6)
-- **lot_b**: T-shaped road, 10 bays (H1-H5, V1-V5)
-
-### Car Dimensions
-- Length: 4.2m
-- Width: 2.0m
-- Wheelbase: 2.7m
-
-### Bay Dimensions
-- Width: 2.7m
-- Length: 5.0m
-
----
-
-## 🔍 Debugging
-
-### Verify Spawn System
 ```bash
-python verify_spawn_logic.py
-# Generates 60 test images in spawn_verification/
+docker run -it --rm --net=host \
+    -v $(pwd)/src:/root/autonomous_parking_ws/src \
+    autonomous_parking_node
 ```
 
-### Check Training Progress
+**Menu Options:**
+1.  **Train:** Starts the 16-stage curriculum training (logs to `src/results/`).
+2.  **Evaluate:** Runs the best model (`PROD_TUNED_2M`) and saves videos.
+3.  **Shell:** Opens a bash shell for debugging.
+
+### 4. Monitor Training (TensorBoard)
+To visualize training progress (Reward, Curriculum Level, Entropy):
+
 ```bash
-tensorboard --logdir runs/
-# Open http://localhost:6006
+tensorboard --logdir src/results/
 ```
+*Then open http://localhost:6006 in your browser.*
 
-### Evaluate Specific Model
+---
+
+### 4. Advanced / Headless Usage (Optional)
+
+If you prefer to run specific scripts directly without the menu:
+
+**Run Evaluation:**
 ```bash
-../../.venv/bin/python -m autonomous_parking.sb3_eval_hierarchical \
-  --lot lot_b \
-  --model-dir results/ppo_hierarchical/hierarchical_v14_0_parking_fixes
+docker run -it --rm --net=host \
+    -v $(pwd)/src:/root/autonomous_parking_ws/src \
+    autonomous_parking_node \
+    bash eval_latest.sh
 ```
 
----
+**Run Training:**
+```bash
+docker run -it --rm --net=host \
+    -v $(pwd)/src:/root/autonomous_parking_ws/src \
+    autonomous_parking_node \
+    bash train.sh
+```
 
-## 📚 Documentation
-
-- **TRAINING_ANALYSIS_v13_2.md**: Detailed analysis of v13.2 issues
-- **V14_0_UPDATE_SUMMARY.md**: v14.0 changes and recommendations
-- **archive/**: Old documentation and test files
-
----
-
-## 🎓 Training Tips
-
-1. **Start Small**: 50k steps for quick testing
-2. **Monitor Metrics**: Watch min_distance and success_rate
-3. **Check Spawns**: Verify spawn_verification/ images look correct
-4. **Use TensorBoard**: Track reward trends over time
-5. **Evaluate Often**: Test model every 10-20k steps
+**✅ RESULT (TRAINING ARTIFACTS):** All files are saved to `src/results/`:
+*   **Models:** `src/results/ppo_hierarchical/production_curriculum_final/*.zip`
+*   **Logs:** Monitor with Tensorboard (`tensorboard --logdir src/results/`)
+*   **Videos:** `src/results/ppo_hierarchical/production_curriculum_final/training_videos/`
 
 ---
 
-## 🤝 Contributing
+## 💻 Option B: Run Locally (Mac/Linux/WSL)
 
-When making changes:
-1. Update version number (e.g., v14.1)
-2. Document changes in this README
-3. Create analysis document if major changes
-4. Test with verify_spawn_logic.py
-5. Train for at least 50k steps
+If you prefer not to use Docker, we provide a unified script that handles environment setup, dependencies, and building.
+
+**Prerequisites:**
+*   Python 3.8+
+*   ROS 2 Humble (installed on your system)
+
+**How to Run:**
+
+```bash
+# 1. Make the script executable
+chmod +x run_local.sh
+
+# 2. Run the interactive menu
+./run_local.sh
+```
+
+**What it does:**
+1.  Creates a generic `.venv` (with access to ROS 2).
+2.  Installs all pip dependencies.
+3.  Builds the ROS 2 package.
+4.  Sources the environment.
+5.  Lets you choose between **Train** and **Evaluate**.
+
+**What to expect:**
+*   **Console Output:** `🚀 Starting hierarchical training...`, `Logging to ...`
+*   **Monitoring:** The logs will stream to your console.
+*   **Stopping:** Press `Ctrl+C` to stop (it is designed to run for millions of steps).
 
 ---
 
-## 📞 Support
+## 📚 Development & Debugging
 
-For issues or questions:
-1. Check TRAINING_ANALYSIS_v13_2.md for common problems
-2. Verify spawn system with verify_spawn_logic.py
-3. Review TensorBoard logs
-4. Check evaluation results
+### Interactive Shell
+If you want to enter the container to explore files or run ROS 2 commands manually:
+
+```bash
+docker run -it --rm --net=host \
+    -v $(pwd)/src:/root/autonomous_parking_ws/src \
+    autonomous_parking_node \
+    bash
+```
+
+### Troubleshooting / Known Warnings
+
+| Warning Message | Explanation | Action |
+| :--- | :--- | :--- |
+| `InvalidBaseImagePlatform` | You are running an AMD64 (Intel) image on an ARM (Apple Silicon) chip. | **Ignore.** It works correctly via emulation. |
+| `Unable to import Axes3D` | Matplotlib 3D plotting is disabled in headless Docker mode. | **Ignore.** 2D plotting still works. |
+| `IMAGEIO FFMPEG_WRITER` | Video dimensions were slightly adjusted (e.g. +8px) for codec compatibility. | **Ignore.** The video is fine. |
 
 ---
 
-**Last Updated**: 2025-11-20  
-**Current Version**: v14.0  
-**Status**: Training in progress
+## 📂 Project Structure
+
+*   **/src**
+    *   `autonomous_parking/`: Main ROS 2 package source code.
+        *   `env2d/`: Gymnasium environments (ParkingEnv, WaypointEnv).
+        *   `rewards/`: Modular reward components (Gaussian, Collision, Penalties).
+        *   `planning/`: Hybrid A* path planner.
+    *   `results/`: Storage for trained models, logs, and evaluation videos.
+*   **Dockerfile**: Environment definition (ROS 2 Humble + RL libs).
+*   **train.sh**: One-click script for curriculum training.
+*   **eval_latest.sh**: One-click script for evaluation.
+*   **requirements.txt**: Pinned Python dependencies (NumPy 2.x compatible).
+
+## 📄 Documentation
+For detailed system architecture, reward logic, and curriculum details, see:
+👉 [AUTONOMOUS_PARKING_DOCUMENTATION.md](AUTONOMOUS_PARKING_DOCUMENTATION.md)

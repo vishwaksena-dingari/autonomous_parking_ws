@@ -2,7 +2,7 @@
 Legacy Curriculum Environment (5-Stage)
 ---------------------------------------
 ⚠️ DEPRECATED: This environment implements the older 5-stage curriculum.
-For the new v15 hierarchical curriculum, use `CurriculumManager` with `WaypointEnv`.
+For the new hierarchical curriculum, use `CurriculumManager` with `WaypointEnv`.
 
 This environment is maintained for backward compatibility with pure RL experiments.
 Curriculum Learning Environment for Pure RL Approach.
@@ -17,14 +17,18 @@ from .parking_env import ParkingEnv
 
 class CurriculumParkingEnv(ParkingEnv):
     """
-    Parking environment with curriculum learning stages.
+    Parking environment with curriculum learning stages (legacy helper).
+
+    Notes:
+    - `should_progress()` only RETURNS whether we *should* move to the next stage.
+    - The caller is responsible for actually calling `set_stage(...)` based on this flag.
     
     Stages:
     1. Close start (2-3m from goal)
     2. Medium start (5-7m from goal)
     3. Far start (10-12m from goal)
     4. Random position in same lot
-    5. Multi-lot random
+    5. Random in same lot (doc says 'multi-lot' but current impl is single-lot)
     """
     
     def __init__(self, lot_name="lot_a", **kwargs):
@@ -128,7 +132,7 @@ class CurriculumParkingEnv(ParkingEnv):
         self.state = np.array([x, y, theta, 0.0], dtype=np.float32)
         self.steps = 0
         
-        # v15 FIX: Set tolerance attributes required by parent's step() method
+        #  FIX: Set tolerance attributes required by parent's step() method
         if self.current_stage == 1:
             self.current_tol_pos = 0.8
             self.current_tol_yaw = 0.5

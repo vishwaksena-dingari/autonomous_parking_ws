@@ -27,9 +27,24 @@ __pycache__/
 
 .hirstory/
 
-# Training results (models, videos, tensorboard)
-results/
-logs/
+# specific root ignore
+/results/
+
+# specific src/results ignore rules (Allow descending)
+src/results/*
+!src/results/ppo_hierarchical/
+
+# Inside ppo_hierarchical, ignore all except our targets
+src/results/ppo_hierarchical/*
+!src/results/ppo_hierarchical/PROD_TUNED_2M/
+!src/results/ppo_hierarchical/tb/
+
+# Inside tb, ignore all except PPO_1
+src/results/ppo_hierarchical/tb/*
+!src/results/ppo_hierarchical/tb/PPO_1/
+!src/results/ppo_hierarchical/tb/PPO_1/**
+
+
 
 # Evaluation results
 eval_results/

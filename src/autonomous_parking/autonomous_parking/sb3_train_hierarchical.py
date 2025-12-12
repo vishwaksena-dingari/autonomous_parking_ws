@@ -42,42 +42,385 @@ from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback,
 from stable_baselines3.common.vec_env import DummyVecEnv  # Changed from SubprocVecEnv
 
 from autonomous_parking.env2d.waypoint_env import WaypointEnv
+from collections import deque
+
+# class VideoRecorderCallback(BaseCallback):
+#     """
+#     Callback to record training episodes as video frames (silently).
+#     Records every N episodes to avoid massive video files.
+#     """
+#     def __init__(self, video_dir: str, record_freq: int = 100, verbose: int = 0):
+#         super().__init__(verbose)
+#         self.video_dir = Path(video_dir)
+#         self.video_dir.mkdir(parents=True, exist_ok=True)
+#         self.record_freq = record_freq  # Record every N episodes
+        
+#         self.episode_count = 0
+#         self.recording = False
+#         self.current_video_path = None
+#         self.video_writer = None
+#         self.waypoint_drawn = False  # Track if waypoints have been drawn for current episode
+#         # NEW: keep track of path artists so we can remove them
+#         self._path_artists = []
+#     def _on_step(self) -> bool:
+#         # Check if we should start recording this episode
+#         if len(self.locals.get("dones", [])) > 0:
+#             if self.locals["dones"][0]:  # Only trigger if the RECORDED env (index 0) is done
+#                 self.episode_count += 1
+                
+#                 # Save video if we were recording
+#                 if self.recording and self.video_writer is not None:
+#                     self.video_writer.release()
+#                     self.video_writer = None
+#                     if self.verbose > 0:
+#                         print(f"📹 Saved training video: {self.current_video_path}")
+#                     self.recording = False
+#                     self.waypoint_drawn = False
+
+#                     # NEW: remove any A* overlays from the figure
+#                     for art in self._path_artists:
+#                         try:
+#                             art.remove()
+#                         except Exception:
+#                             pass
+#                     self._path_artists = []
+
+                
+#                 # Start recording next episode if it's time
+#                 if self.episode_count % self.record_freq == 0:
+#                     self.recording = True
+#                     self.waypoint_drawn = False
+#                     self.current_video_path = self.video_dir / f"training_ep{self.episode_count:05d}.mp4"
+#                     if self.verbose > 0:
+#                         print(f"🎬 Recording episode {self.episode_count}...")
+        
+#         # Capture frame if recording
+#         if self.recording:
+#             # Get frame from first environment (index 0)
+#             if hasattr(self.training_env, 'envs') and len(self.training_env.envs) > 0:
+#                 env = self.training_env.envs[0]
+#                 # Unwrap Monitor
+#                 if hasattr(env, 'env'):
+#                     env = env.env
+                    
+#                 # # Draw waypoints on first frame of episode
+#                 # if not self.waypoint_drawn and hasattr(env, 'waypoints') and hasattr(env, 'ax'):
+#                 #     if env.waypoints is not None and env.ax is not None and len(env.waypoints) > 0:
+#                 #         waypoints = np.array(env.waypoints)
+#                 #         # Draw path as red dashed line
+#                 #         env.ax.plot(waypoints[:, 0], waypoints[:, 1], 
+#                 #                    'r--', linewidth=2.5, alpha=0.8, 
+#                 #                    label='A* Path', zorder=2.5)
+#                 #         # Draw waypoints as red dots
+#                 #         env.ax.scatter(waypoints[:, 0], waypoints[:, 1], 
+#                 #                       c='red', s=30, zorder=2.6, alpha=0.7)
+#                 #         self.waypoint_drawn = True
+#                                 # Draw waypoints on first frame of episode
+#                 if not self.waypoint_drawn and hasattr(env, 'waypoints') and hasattr(env, 'ax'):
+#                     if env.waypoints is not None and env.ax is not None and len(env.waypoints) > 0:
+#                         waypoints = np.array(env.waypoints)
+
+#                         # NEW: remove any leftover path artists (from previous recorded eps)
+#                         for art in self._path_artists:
+#                             try:
+#                                 art.remove()
+#                             except Exception:
+#                                 pass
+#                         self._path_artists = []
+
+#                         # Draw path as red dashed line
+#                         line, = env.ax.plot(
+#                             waypoints[:, 0], waypoints[:, 1],
+#                             'r--', linewidth=2.5, alpha=0.8,
+#                             zorder=2.5,
+#                         )
+#                         # Draw waypoints as red dots
+#                         pts = env.ax.scatter(
+#                             waypoints[:, 0], waypoints[:, 1],
+#                             c='red', s=30, zorder=2.6, alpha=0.7,
+#                         )
+
+#                         # NEW: remember these so we can remove them later
+#                         self._path_artists = [line, pts]
+#                         self.waypoint_drawn = True
+                        
+#                         # Update title with episode info for debugging
+#                         spawn_x, spawn_y = env.state[0], env.state[1]
+#                         bay_id = env.goal_bay.get('id', 'Unknown')
+#                         lot = env.lot_name
+#                         env.ax.set_title(
+#                             f"{lot.upper()} | Goal: {bay_id} | "
+#                             f"Spawn: ({spawn_x:.1f}, {spawn_y:.1f}) | "
+#                             f"Ep {self.episode_count}",
+#                             fontsize=10
+#                         )
+
+                
+#                 if hasattr(env, 'render'):
+#                     # Setup rendering if needed
+#                     if env.fig is None:
+#                         env._setup_render()
+                    
+#                     # Update the plot
+#                     env.render()
+                    
+#                     # Capture frame from matplotlib figure
+#                     if env.fig is not None:
+#                         env.fig.canvas.draw()
+#                         # Get buffer from canvas (macOS uses ARGB, not RGB)
+#                         try:
+#                             # Try RGB first (Linux/Windows)
+#                             buf = np.frombuffer(env.fig.canvas.tostring_rgb(), dtype=np.uint8)
+#                             w, h = env.fig.canvas.get_width_height()
+#                             frame = buf.reshape(h, w, 3)
+#                         except AttributeError:
+#                             # macOS uses ARGB
+#                             buf = np.frombuffer(env.fig.canvas.tostring_argb(), dtype=np.uint8)
+#                             w, h = env.fig.canvas.get_width_height()
+                            
+#                             # Handle Retina display (2x scaling)
+#                             if buf.size == w * h * 4 * 4:  # 2x width, 2x height
+#                                 w, h = w * 2, h * 2
+                                
+#                             frame_argb = buf.reshape(h, w, 4)
+#                             # Convert ARGB to RGB (drop alpha channel)
+#                             frame = frame_argb[:, :, 1:]  # Skip A, keep RGB
+                        
+#                         if frame is not None and isinstance(frame, np.ndarray):
+#                             # Initialize video writer on first frame
+#                             if self.video_writer is None:
+#                                 h, w = frame.shape[:2]
+#                                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+#                                 self.video_writer = cv2.VideoWriter(
+#                                     str(self.current_video_path), 
+#                                     fourcc, 
+#                                     20.0,  # 20 FPS
+#                                     (w, h)
+#                                 )
+                            
+#                             # Convert RGB to BGR for OpenCV
+#                             if len(frame.shape) == 3 and frame.shape[2] == 3:
+#                                 frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+#                                 self.video_writer.write(frame_bgr)
+        
+#         return True
+    
+#     def _on_training_end(self) -> None:
+#         """Release any open video writer."""
+#         if self.video_writer is not None:
+#             self.video_writer.release()
 
 
 class VideoRecorderCallback(BaseCallback):
     """
-    Callback to record training episodes as video frames (silently).
-    Records every N episodes to avoid massive video files.
+    Callback to:
+      - Record training episodes as video frames every N episodes (periodic).
+      - Save short videos + .npz trajectories for SUCCESS episodes.
+
+    Design:
+      - Episode numbering is based on env index 0.
+      - Periodic videos: full episode, same as before.
+      - Success videos: last `success_buffer_len` frames of that episode.
+      - Success .npz: full trajectory (obs/actions/rewards/infos) for that episode.
     """
-    def __init__(self, video_dir: str, record_freq: int = 100, verbose: int = 0):
+
+    def __init__(
+        self,
+        video_dir: str,
+        record_freq: int = 100,
+        verbose: int = 0,
+        success_video_dir: str | None = None,
+        success_npz_dir: str | None = None,
+        save_success_npz: bool = False,
+        success_buffer_len: int = 200,
+    ):
         super().__init__(verbose)
         self.video_dir = Path(video_dir)
         self.video_dir.mkdir(parents=True, exist_ok=True)
-        self.record_freq = record_freq  # Record every N episodes
-        
+        self.record_freq = max(1, record_freq)  # avoid 0
+
+        # Success-specific outputs
+        self.success_video_dir = Path(success_video_dir) if success_video_dir else None
+        if self.success_video_dir is not None:
+            self.success_video_dir.mkdir(parents=True, exist_ok=True)
+
+        self.success_npz_dir = Path(success_npz_dir) if success_npz_dir else None
+        if self.success_npz_dir is not None:
+            self.success_npz_dir.mkdir(parents=True, exist_ok=True)
+
+        self.save_success_npz = save_success_npz
+        self.success_buffer_len = max(1, success_buffer_len)
+
         self.episode_count = 0
-        self.recording = False
+        self.recording = False      # periodic training video flag
         self.current_video_path = None
         self.video_writer = None
-        self.waypoint_drawn = False  # Track if waypoints have been drawn for current episode
-        # NEW: keep track of path artists so we can remove them
-        self._path_artists = []
-    def _on_step(self) -> bool:
-        # Check if we should start recording this episode
-        if len(self.locals.get("dones", [])) > 0:
-            if self.locals["dones"][0]:  # Only trigger if the RECORDED env (index 0) is done
-                self.episode_count += 1
-                
-                # Save video if we were recording
-                if self.recording and self.video_writer is not None:
-                    self.video_writer.release()
-                    self.video_writer = None
-                    if self.verbose > 0:
-                        print(f"📹 Saved training video: {self.current_video_path}")
-                    self.recording = False
-                    self.waypoint_drawn = False
+        self.waypoint_drawn = False
+        self._path_artists = []     # matplotlib artists to remove
 
-                    # NEW: remove any A* overlays from the figure
+        # Buffers for SUCCESS episodes
+        self._success_frames = deque(maxlen=self.success_buffer_len)
+        self._ep_obs = []
+        self._ep_actions = []
+        self._ep_rewards = []
+        self._ep_infos = []
+
+    def _reset_episode_buffers(self):
+        """Clear per-episode buffers."""
+        self._success_frames.clear()
+        self._ep_obs.clear()
+        self._ep_actions.clear()
+        self._ep_rewards.clear()
+        self._ep_infos.clear()
+        self.waypoint_drawn = False
+
+    def _save_success_npz(self, episode_idx: int):
+        """Save full trajectory of a success episode as .npz."""
+        if not (self.save_success_npz and self.success_npz_dir is not None):
+            return
+
+        if len(self._ep_obs) == 0:
+            return  # nothing to save
+
+        npz_path = self.success_npz_dir / f"success_ep{episode_idx:05d}.npz"
+        try:
+            np.savez(
+                npz_path,
+                observations=np.array(self._ep_obs),
+                actions=np.array(self._ep_actions),
+                rewards=np.array(self._ep_rewards),
+                infos=np.array(self._ep_infos, dtype=object),
+            )
+            if self.verbose > 0:
+                print(f"💾 Saved success trajectory: {npz_path}")
+        except Exception as e:
+            if self.verbose > 0:
+                print(f"⚠️ Failed to save success npz ({npz_path}): {e}")
+
+    def _save_success_video(self, episode_idx: int):
+        """Save short success video from the buffered last frames."""
+        if self.success_video_dir is None or cv2 is None:
+            return
+        if len(self._success_frames) == 0:
+            return
+
+        out_path = self.success_video_dir / f"success_ep{episode_idx:05d}.mp4"
+        try:
+            # All frames same shape
+            h, w = self._success_frames[0].shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(str(out_path), fourcc, 20.0, (w, h))
+
+            for fr in self._success_frames:
+                if fr is None:
+                    continue
+                if len(fr.shape) == 3 and fr.shape[2] == 3:
+                    fr_bgr = cv2.cvtColor(fr, cv2.COLOR_RGB2BGR)
+                else:
+                    # fallback: grayscale -> BGR
+                    fr_bgr = cv2.cvtColor(fr, cv2.COLOR_GRAY2BGR)
+                writer.write(fr_bgr)
+
+            writer.release()
+            if self.verbose > 0:
+                print(f"🏁 Saved SUCCESS video: {out_path}")
+        except Exception as e:
+            if self.verbose > 0:
+                print(f"⚠️ Failed to save success video ({out_path}): {e}")
+
+    def _on_step(self) -> bool:
+        # ==== 1) Collect per-step trajectory data for env 0 ====
+        try:
+            obs = self.locals.get("new_obs", None)
+            if obs is not None:
+                self._ep_obs.append(obs[0].copy())
+
+            if "actions" in self.locals:
+                self._ep_actions.append(self.locals["actions"][0].copy())
+
+            if "rewards" in self.locals:
+                self._ep_rewards.append(float(self.locals["rewards"][0]))
+
+            if "infos" in self.locals:
+                self._ep_infos.append(self.locals["infos"][0])
+        except Exception:
+            # don't break training if logging fails
+            pass
+
+        # ==== 2) Handle episode end (env index 0) ====
+        dones = self.locals.get("dones", [])
+        if len(dones) > 0 and dones[0]:
+            # Episode finished for env 0
+            self.episode_count += 1
+
+            # Extract info for success flag
+            info0 = None
+            try:
+                info0 = self.locals.get("infos", [None])[0]
+            except Exception:
+                info0 = None
+
+            # is_success = bool(info0.get("success", 0)) if isinstance(info0, dict) else False
+            is_success = False
+            if isinstance(info0, dict):
+                is_success = bool(
+                    info0.get("success", 0)
+                    or info0.get("parking_success", 0)
+                    or info0.get("final_success", 0)
+                )
+            # DEBUG PRINT FOR SUCCESS DETECTION
+            print(f"[VideoCB] Episode {self.episode_count+1}: success={is_success}  "
+                  f"(recording_next={self.episode_count % self.record_freq == 0})")
+
+
+            # Close periodic training video if we were recording
+            if self.recording and self.video_writer is not None:
+                try:
+                    self.video_writer.release()
+                except Exception:
+                    pass
+                self.video_writer = None
+                if self.verbose > 0:
+                    print(f"📹 Saved training video: {self.current_video_path}")
+                self.recording = False
+
+                # Remove any A* overlays from the figure
+                for art in self._path_artists:
+                    try:
+                        art.remove()
+                    except Exception:
+                        pass
+                self._path_artists = []
+
+            # Save success outputs (video + npz) for this episode
+            if is_success:
+                self._save_success_npz(self.episode_count)
+                self._save_success_video(self.episode_count)
+                print(f"[VideoCB] Saved SUCCESS video for ep {self.episode_count}")
+
+            # Decide whether we record the *next* episode periodically
+            if self.episode_count % self.record_freq == 0:
+                self.recording = True
+                self.current_video_path = self.video_dir / f"training_ep{self.episode_count:05d}.mp4"
+                if self.verbose > 0:
+                    print(f"🎬 Recording episode {self.episode_count} (periodic)...")
+
+            # Reset per-episode buffers (for the *next* episode)
+            self._reset_episode_buffers()
+
+        # ==== 3) Capture frame for env 0 (for both periodic + success) ====
+        if hasattr(self.training_env, 'envs') and len(self.training_env.envs) > 0:
+            env = self.training_env.envs[0]
+            # Unwrap Monitor
+            if hasattr(env, 'env'):
+                env = env.env
+
+            # Draw waypoints ONLY when we are recording a periodic video
+            if self.recording and (not self.waypoint_drawn) and hasattr(env, 'waypoints') and hasattr(env, 'ax'):
+                if env.waypoints is not None and env.ax is not None and len(env.waypoints) > 0:
+                    waypoints = np.array(env.waypoints)
+
+                    # Remove leftover path artists if any
                     for art in self._path_artists:
                         try:
                             art.remove()
@@ -85,130 +428,99 @@ class VideoRecorderCallback(BaseCallback):
                             pass
                     self._path_artists = []
 
-                
-                # Start recording next episode if it's time
-                if self.episode_count % self.record_freq == 0:
-                    self.recording = True
-                    self.waypoint_drawn = False
-                    self.current_video_path = self.video_dir / f"training_ep{self.episode_count:05d}.mp4"
-                    if self.verbose > 0:
-                        print(f"🎬 Recording episode {self.episode_count}...")
-        
-        # Capture frame if recording
-        if self.recording:
-            # Get frame from first environment (index 0)
-            if hasattr(self.training_env, 'envs') and len(self.training_env.envs) > 0:
-                env = self.training_env.envs[0]
-                # Unwrap Monitor
-                if hasattr(env, 'env'):
-                    env = env.env
-                    
-                # # Draw waypoints on first frame of episode
-                # if not self.waypoint_drawn and hasattr(env, 'waypoints') and hasattr(env, 'ax'):
-                #     if env.waypoints is not None and env.ax is not None and len(env.waypoints) > 0:
-                #         waypoints = np.array(env.waypoints)
-                #         # Draw path as red dashed line
-                #         env.ax.plot(waypoints[:, 0], waypoints[:, 1], 
-                #                    'r--', linewidth=2.5, alpha=0.8, 
-                #                    label='A* Path', zorder=2.5)
-                #         # Draw waypoints as red dots
-                #         env.ax.scatter(waypoints[:, 0], waypoints[:, 1], 
-                #                       c='red', s=30, zorder=2.6, alpha=0.7)
-                #         self.waypoint_drawn = True
-                                # Draw waypoints on first frame of episode
-                if not self.waypoint_drawn and hasattr(env, 'waypoints') and hasattr(env, 'ax'):
-                    if env.waypoints is not None and env.ax is not None and len(env.waypoints) > 0:
-                        waypoints = np.array(env.waypoints)
+                    # Draw path + waypoints
+                    line, = env.ax.plot(
+                        waypoints[:, 0], waypoints[:, 1],
+                        'r--', linewidth=2.5, alpha=0.8, zorder=2.5,
+                    )
+                    pts = env.ax.scatter(
+                        waypoints[:, 0], waypoints[:, 1],
+                        c='red', s=30, zorder=2.6, alpha=0.7,
+                    )
+                    self._path_artists = [line, pts]
+                    self.waypoint_drawn = True
 
-                        # NEW: remove any leftover path artists (from previous recorded eps)
-                        for art in self._path_artists:
-                            try:
-                                art.remove()
-                            except Exception:
-                                pass
-                        self._path_artists = []
-
-                        # Draw path as red dashed line
-                        line, = env.ax.plot(
-                            waypoints[:, 0], waypoints[:, 1],
-                            'r--', linewidth=2.5, alpha=0.8,
-                            zorder=2.5,
-                        )
-                        # Draw waypoints as red dots
-                        pts = env.ax.scatter(
-                            waypoints[:, 0], waypoints[:, 1],
-                            c='red', s=30, zorder=2.6, alpha=0.7,
-                        )
-
-                        # NEW: remember these so we can remove them later
-                        self._path_artists = [line, pts]
-                        self.waypoint_drawn = True
-                        
-                        # Update title with episode info for debugging
+                    # Optional: title with debug info
+                    try:
                         spawn_x, spawn_y = env.state[0], env.state[1]
-                        bay_id = env.goal_bay.get('id', 'Unknown')
-                        lot = env.lot_name
+                        bay_id = env.goal_bay.get('id', 'Unknown') if hasattr(env, "goal_bay") else "Unknown"
+                        lot = getattr(env, "lot_name", "lot")
                         env.ax.set_title(
                             f"{lot.upper()} | Goal: {bay_id} | "
                             f"Spawn: ({spawn_x:.1f}, {spawn_y:.1f}) | "
                             f"Ep {self.episode_count}",
                             fontsize=10
                         )
+                    except Exception:
+                        pass
 
-                
-                if hasattr(env, 'render'):
-                    # Setup rendering if needed
-                    if env.fig is None:
+            # Now render & grab frame for both periodic + success buffer
+            if hasattr(env, 'render'):
+                if getattr(env, "fig", None) is None:
+                    try:
                         env._setup_render()
-                    
-                    # Update the plot
-                    env.render()
-                    
-                    # Capture frame from matplotlib figure
-                    if env.fig is not None:
-                        env.fig.canvas.draw()
-                        # Get buffer from canvas (macOS uses ARGB, not RGB)
+                    except Exception:
+                        pass
+
+                env.render()
+
+                frame = None
+                if getattr(env, "fig", None) is not None:
+                    env.fig.canvas.draw()
+                    try:
+                        # Try RGB (Linux/Windows)
+                        buf = np.frombuffer(env.fig.canvas.tostring_rgb(), dtype=np.uint8)
+                        w, h = env.fig.canvas.get_width_height()
+                        frame = buf.reshape(h, w, 3)
+                    except Exception:
+                        # macOS ARGB path
                         try:
-                            # Try RGB first (Linux/Windows)
-                            buf = np.frombuffer(env.fig.canvas.tostring_rgb(), dtype=np.uint8)
-                            w, h = env.fig.canvas.get_width_height()
-                            frame = buf.reshape(h, w, 3)
-                        except AttributeError:
-                            # macOS uses ARGB
                             buf = np.frombuffer(env.fig.canvas.tostring_argb(), dtype=np.uint8)
                             w, h = env.fig.canvas.get_width_height()
-                            
-                            # Handle Retina display (2x scaling)
-                            if buf.size == w * h * 4 * 4:  # 2x width, 2x height
+
+                            # Handle potential Retina scaling (2x)
+                            expected = w * h * 4
+                            if buf.size == expected * 4:
                                 w, h = w * 2, h * 2
-                                
+
                             frame_argb = buf.reshape(h, w, 4)
-                            # Convert ARGB to RGB (drop alpha channel)
-                            frame = frame_argb[:, :, 1:]  # Skip A, keep RGB
-                        
-                        if frame is not None and isinstance(frame, np.ndarray):
-                            # Initialize video writer on first frame
-                            if self.video_writer is None:
-                                h, w = frame.shape[:2]
-                                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                                self.video_writer = cv2.VideoWriter(
-                                    str(self.current_video_path), 
-                                    fourcc, 
-                                    20.0,  # 20 FPS
-                                    (w, h)
-                                )
-                            
-                            # Convert RGB to BGR for OpenCV
-                            if len(frame.shape) == 3 and frame.shape[2] == 3:
-                                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                                self.video_writer.write(frame_bgr)
-        
+                            frame = frame_argb[:, :, 1:]  # drop alpha
+                        except Exception:
+                            frame = None
+
+                if frame is not None and isinstance(frame, np.ndarray):
+                    # Always keep last N frames for potential SUCCESS video
+                    self._success_frames.append(frame.copy())
+
+                    # If this episode is a periodic training episode, also write full video
+                    if self.recording and self.current_video_path is not None and cv2 is not None:
+                        if self.video_writer is None:
+                            h, w = frame.shape[:2]
+                            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                            self.video_writer = cv2.VideoWriter(
+                                str(self.current_video_path),
+                                fourcc,
+                                20.0,
+                                (w, h),
+                            )
+
+                        if len(frame.shape) == 3 and frame.shape[2] == 3:
+                            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                        else:
+                            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                        self.video_writer.write(frame_bgr)
+
         return True
-    
+
     def _on_training_end(self) -> None:
         """Release any open video writer."""
         if self.video_writer is not None:
-            self.video_writer.release()
+            try:
+                self.video_writer.release()
+            except Exception:
+                pass
+            self.video_writer = None
+
 
 class CurriculumEarlyStopCallback(BaseCallback):
     """
@@ -327,6 +639,8 @@ def make_waypoint_env(
     bay_entry_bonus: float = 60.0,
     corridor_penalty: float = 0.05,
     vel_reward_w: float = 0.05,
+    anti_freeze_penalty: float = 0.01,    # v42
+    backward_penalty_weight: float = 2.0, # v42
 ):
     """
     Create a waypoint-following environment for hierarchical RL.
@@ -357,6 +671,8 @@ def make_waypoint_env(
             bay_entry_bonus=bay_entry_bonus,
             corridor_penalty=corridor_penalty,
             vel_reward_w=vel_reward_w,
+            anti_freeze_penalty=anti_freeze_penalty,
+            backward_penalty_weight=backward_penalty_weight,
         )
         env = Monitor(env)
         env.reset(seed=seed + rank)  # v41: Use explicit seed parameter
@@ -368,8 +684,8 @@ def main():
     parser = argparse.ArgumentParser(description="Hierarchical RL Training")
     parser.add_argument("--total-steps", type=int, default=50_000)
     parser.add_argument("--max-episode-steps", type=int, default=2000)  # Increased for final parking
-    parser.add_argument("--run-name", type=str, default="hierarchical_v14_20",
-                        help="Name for this training run")
+    parser.add_argument("--run-name", type=str, default="production_run",
+                        help="Name of the run (for Tensorboard/checkpoints)")
     parser.add_argument("--save-freq", type=int, default=10_000)
     parser.add_argument("--n-envs", type=int, default=4)
     parser.add_argument("--record-video", action="store_true", help="Record training videos silently")
@@ -397,6 +713,10 @@ def main():
                         help="Corridor penalty weight (TUNED v40)")
     parser.add_argument("--vel-reward-w", type=float, default=0.01,
                         help="Velocity reward weight (TUNED v40)")
+    parser.add_argument("--anti-freeze-penalty", type=float, default=0.01,
+                        help="Anti-freeze penalty (v42 tunable)")
+    parser.add_argument("--backward-penalty-weight", type=float, default=2.0,
+                        help="Backward motion penalty weight (v42 tunable)")
     
     # PPO hyperparameters - from Stage 2 winner: ppo_003_055433 (score: -443.7)
     parser.add_argument("--ent-coef", type=float, default=0.005,
@@ -518,6 +838,8 @@ def main():
             bay_entry_bonus=args.bay_entry_bonus,
             corridor_penalty=args.corridor_penalty,
             vel_reward_w=args.vel_reward_w,
+            anti_freeze_penalty=args.anti_freeze_penalty,
+            backward_penalty_weight=args.backward_penalty_weight,
         ) for i in range(args.n_envs)
     ])
     
@@ -536,6 +858,8 @@ def main():
             bay_entry_bonus=args.bay_entry_bonus,
             corridor_penalty=args.corridor_penalty,
             vel_reward_w=args.vel_reward_w,
+            anti_freeze_penalty=args.anti_freeze_penalty,
+            backward_penalty_weight=args.backward_penalty_weight,
         )
     ])
     
@@ -642,6 +966,25 @@ def main():
 
     callbacks = [checkpoint_callback, eval_callback]
 
+    # --- Optional video + success recording callback ---
+    if args.record_video and cv2 is not None:
+        success_video_dir = abs_video_dir / "success_episodes"
+        success_npz_dir   = abs_log_dir   / "success_npz"
+
+        video_cb = VideoRecorderCallback(
+            video_dir=str(abs_video_dir),
+            record_freq=args.video_freq,
+            verbose=1,
+            success_video_dir=str(success_video_dir),
+            success_npz_dir=str(success_npz_dir),
+            save_success_npz=True,
+            success_buffer_len=200,  # last N frames stored
+        )
+        callbacks.append(video_cb)
+    else:
+        if args.record_video and cv2 is None:
+            print("[WARN] OpenCV (cv2) not available; video recording disabled.")
+
     # 3) Periodic full-model save
     if args.save_freq > 0:
         class PeriodicSaveCallback(BaseCallback):
@@ -683,18 +1026,84 @@ def main():
         print("🧠 CurriculumEarlyStopCallback enabled "
               "(will stop when Smax is stable and successful).")
 
-    if args.record_video:
-        if cv2 is None:
-            print("⚠️ --record-video requested, but OpenCV is not installed. Skipping video recording.")
-        else:
-            video_dir = os.path.join(log_dir, "training_videos")
-            video_callback = VideoRecorderCallback(
-                video_dir=video_dir,
-                record_freq=args.video_freq,
-                verbose=1
-            )
-            callbacks.append(video_callback)
-            print(f"📹 Video recording enabled: {video_dir}")
+    # if args.record_video:
+    #     if cv2 is None:
+    #         print("⚠️ --record-video requested, but OpenCV is not installed. Skipping video recording.")
+    #     else:
+    #         video_dir = os.path.join(log_dir, "training_videos")
+    #         video_callback = VideoRecorderCallback(
+    #             video_dir=video_dir,
+    #             record_freq=args.video_freq,
+    #             verbose=1
+    #         )
+    #         callbacks.append(video_callback)
+    #         print(f"📹 Video recording enabled: {video_dir}")
+    # if args.record_video:
+    #     if cv2 is None:
+    #         print("⚠️ --record-video requested, but OpenCV is not installed. Skipping video recording.")
+    #     else:
+    #         video_dir = os.path.join(log_dir, "training_videos")
+    #         success_video_dir = os.path.join(log_dir, "success_videos")
+    #         success_npz_dir = os.path.join(log_dir, "success_npz")
+
+    #         video_callback = VideoRecorderCallback(
+    #             video_dir=video_dir or log_dir,
+    #             record_freq=args.video_freq,   # every N episodes
+    #             verbose=1,
+    #             success_video_dir=success_video_dir,
+    #             success_npz_dir=success_npz_dir,
+    #             save_success_npz=True,
+    #             success_buffer_len=200,        # ~last 200 frames per success
+    #         )
+    #         callbacks.append(video_callback)
+    #         print(f"📹 Video recording enabled: {video_dir}")
+    #         print(f"🏁 Success videos dir     : {success_video_dir}")
+    #         print(f"💾 Success npz dir        : {success_npz_dir}")
+    # --- Video + success recording callback (always attach) ---
+    video_dir = os.path.join(log_dir, "training_videos")
+    success_video_dir = os.path.join(log_dir, "success_videos")
+    success_npz_dir = os.path.join(log_dir, "success_npz")
+
+    os.makedirs(success_video_dir, exist_ok=True)
+    os.makedirs(success_npz_dir, exist_ok=True)
+
+    if cv2 is None:
+        if args.record_video:
+            print("⚠️ --record-video requested, but OpenCV is not installed. "
+                "Skipping periodic training videos (success npz still enabled).")
+
+        # We still attach the callback so that SUCCESS .npz trajectories work.
+        video_callback = VideoRecorderCallback(
+            video_dir=video_dir or log_dir,
+            record_freq=10**9,  # effectively disable periodic video
+            verbose=1,
+            success_video_dir=success_video_dir,
+            success_npz_dir=success_npz_dir,
+            save_success_npz=True,
+            success_buffer_len=200,
+        )
+    else:
+        # If --record-video: use user-specified frequency for periodic videos.
+        # If not: still attach, but periodic videos effectively off.
+        effective_record_freq = args.video_freq if args.record_video else 10**9
+
+        video_callback = VideoRecorderCallback(
+            video_dir=video_dir or log_dir,
+            record_freq=effective_record_freq,
+            verbose=1,
+            success_video_dir=success_video_dir,
+            success_npz_dir=success_npz_dir,
+            save_success_npz=True,
+            success_buffer_len=200,
+        )
+
+        if args.record_video:
+            print(f"📹 Periodic training videos : {video_dir} (every {args.video_freq} episodes)")
+    print(f"🏁 Success videos dir        : {success_video_dir}")
+    print(f"💾 Success npz dir           : {success_npz_dir}")
+
+    callbacks.append(video_callback)
+
     
     # Train
     print("\n🚀 Starting hierarchical training...")

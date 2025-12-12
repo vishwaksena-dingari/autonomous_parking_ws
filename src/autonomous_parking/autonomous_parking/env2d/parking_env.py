@@ -70,7 +70,7 @@ class ParkingEnv(gym.Env):
         self.car_length = 4.2  # m  (slightly shorter than bay depth)
         self.car_width = 1.9   # m
         self.wheelbase = 2.6   # m
-        self.collision_penalty = -500.0  # v40: Harsh penalty for hitting physical objects
+        self.collision_penalty = -500.0  # Harsh penalty for hitting physical objects
 
         # ---- Parking bay dimensions (match SDF) ----
         self.bay_length = 5.5  # m (depth)
@@ -121,6 +121,28 @@ class ParkingEnv(gym.Env):
             dtype=np.float32,
         )
 
+        # # ---- Road compliance parameters ----
+        # self.road_center_y = 0.0   # Center of main aisle (lot_a)
+        # self.road_center_x = None  # For vertical roads (lot_b V-bays)
+        # self.road_orientation = "horizontal"  # lot_a default
+        # self.road_width = 6.0  # m (approx driveable width)
+
+        # # Load parking lot configuration
+        # cfg = load_parking_config(lot_name)
+        # self.entrance = cfg["entrance"]
+        # self.bays = cfg["bays"]
+        # self.roads = cfg.get("roads", [])
+
+        # # Ensure road geometry is initialized for the starting lot
+        # if lot_name == "lot_a":
+        #     self.road_center_y = 0.0
+        #     self.road_center_x = None
+        #     self.road_orientation = "horizontal"
+        # elif lot_name == "lot_b":
+        #     self.road_center_y = 10.0         # H-bay road
+        #     self.road_center_x = -4.0         # <-- set this to your actual vertical road center
+        #     self.road_orientation = "mixed"
+
         # ---- Road compliance parameters ----
         self.road_center_y = 0.0   # Center of main aisle (lot_a)
         self.road_center_x = None  # For vertical roads (lot_b V-bays)
@@ -133,6 +155,31 @@ class ParkingEnv(gym.Env):
         self.bays = cfg["bays"]
         self.roads = cfg.get("roads", [])
 
+        # # Ensure road geometry is initialized for the starting lot
+        # if lot_name == "lot_a":
+        #     self.road_center_y = 0.0
+        #     self.road_center_x = None
+        #     self.road_orientation = "horizontal"
+        # elif lot_name == "lot_b":
+        #     # Lot B: horizontal road at y=10, vertical road around x=-4
+        #     self.road_center_y = 10.0        # H-bay road
+        #     self.road_center_x = -4.0        # V-bay road
+        #     self.road_orientation = "mixed"
+
+        # Ensure road geometry is initialized for the starting lot
+        if lot_name == "lot_a":
+            self.road_center_y = 0.0
+            self.road_center_x = None
+            self.road_orientation = "horizontal"
+        elif lot_name == "lot_b":
+            # Lot B: horizontal road at y=10, vertical road beside V1–V5
+            self.road_center_y = 10.0   # H-bay road (fixed in YAML)
+            # Vertical road: left edge flush with V-bay entrance (~x = -4.75)
+            # bay_length = 5.5, road_width = 6.0 -> center = -1.75
+            # self.road_center_x = -1.75  # V-bay road center
+            self.road_center_x = -1.5  # V-bay road center
+            self.road_orientation = "mixed"
+
         # ---- Enhanced Lidar Sensor ----
         # Lidar sensor (CRITICAL FIX: Increased from 32 to 64 rays for precision parking)
         self.lidar = EnhancedLidar(
@@ -142,7 +189,7 @@ class ParkingEnv(gym.Env):
             min_range=0.1,
         )
 
-        # v41.2: Override fields for micro-curriculum
+        # Override fields for micro-curriculum
         self.max_spawn_dist_override = None     # Existing
         self.spawn_side_override = None         # Existing
         self.aligned_spawn_override = False     # NEW: For straight-in baby parking
@@ -159,12 +206,12 @@ class ParkingEnv(gym.Env):
         self.state = None          # [x, y, yaw, v]
         self.goal_bay = None
         self.occupied_bays = []
-        self.parked_patches = [] # v40: Parked car patches
+        self.parked_patches = [] # Parked car patches
         self.episode_count = 0
         self.episode_start_time = 0.0
 
         self.last_steering = 0.0
-        # v15 attributes max_spawn_dist_override/spawn_side_override removed (handled in v41 block above)
+        # attributes max_spawn_dist_override/spawn_side_override removed 
 
         # Dynamic tolerances driven by curriculum
         self.current_tol_pos = 0.5
@@ -179,6 +226,11 @@ class ParkingEnv(gym.Env):
         self.goal_arrow = None
         self.bay_patches = []
 
+        # v34 overlay artists (for videos) – will be managed per frame
+        self.v34_corridor_lines = []   # list of Line2D for left/right boundaries
+        self.v34_bay_scatter = None    # PathCollection for 8-point bay ref
+        self.v34_wp_scatter = None     # PathCollection for waypoint dots
+
     # ======================= HELPERS =======================
 
     @staticmethod
@@ -186,7 +238,7 @@ class ParkingEnv(gym.Env):
         """Wrap angle to [-pi, pi]."""
         return (theta + math.pi) % (2 * math.pi) - math.pi
 
-    # NOTE: _pick_goal_bay() was removed (v41 cleanup).
+    # NOTE: _pick_goal_bay() was removed 
     # It had a +90° yaw offset that was inconsistent with reset().
     # Bay selection now happens directly in reset().
 
@@ -238,9 +290,11 @@ class ParkingEnv(gym.Env):
         lidar_ranges = self.lidar.scan(
             robot_pose=np.array([x, y, yaw]),
             world_bounds=world_bounds,
-            bays=self.bays,
+            # bays=self.bays,
+            bays=None,
             occupied_bays=self.occupied_bays,
             dynamic_obstacles=None,
+            goal_bay_id=self.goal_bay["id"],
         )
 
         # v38.9: Use all 64 rays from lidar (no truncation)
@@ -251,6 +305,49 @@ class ParkingEnv(gym.Env):
             dtype=np.float32,
         )
         return obs
+    
+    def _configure_only_goal_bay_empty(self):
+        """
+        Force all bays EXCEPT the current goal bay to be occupied.
+
+        - Goal bay stays free (no parked car).
+        - Every other bay becomes a parked car obstacle.
+        - Updates both occupied_bay_ids and occupied_bay_objects so that
+          lidar + collision checks see them as full-size parked cars.
+        """
+        if self.goal_bay is None:
+            return
+
+        goal_id = self.goal_bay["id"]
+
+        # Reset manager state
+        self.occupied_manager.occupied_bay_ids.clear()
+        self.occupied_manager.occupied_bay_objects.clear()
+
+        for bay in self.bays:
+            bay_id = bay["id"]
+            if bay_id == goal_id:
+                # Goal bay must stay empty
+                continue
+
+            # Mark bay as occupied
+            self.occupied_manager.occupied_bay_ids.add(bay_id)
+
+            # Define parked car OBB aligned with bay pose
+            self.occupied_manager.occupied_bay_objects.append(
+                {
+                    "id": bay_id,
+                    "x": bay["x"],
+                    "y": bay["y"],
+                    "yaw": bay["yaw"],
+                    "length": self.car_length,
+                    "width": self.car_width,
+                }
+            )
+
+        # Sync env-level list used by lidar + collision
+        self.occupied_bays = self.occupied_manager.get_all_parked_cars()
+
 
     # ======================= LOT / CURRICULUM =======================
 
@@ -267,81 +364,219 @@ class ParkingEnv(gym.Env):
         self.bays = cfg["bays"]
         self.roads = cfg.get("roads", [])
 
-        # Update road geometry based on lot
+        # # Update road geometry based on lot
+        # if lot_name == "lot_a":
+        #     self.road_center_y = 0.0
+        #     self.road_center_x = None
+        #     self.road_orientation = "horizontal"
+        # elif lot_name == "lot_b":
+        #     # Lot B has BOTH horizontal (H-bays) and vertical (V-bays) roads
+        #     self.road_center_y = 10.0  # H-bay horizontal road
+        #     self.road_center_x = -4.0   # V-bay vertical road
+        #     self.road_orientation = "mixed"
+
         if lot_name == "lot_a":
             self.road_center_y = 0.0
             self.road_center_x = None
             self.road_orientation = "horizontal"
         elif lot_name == "lot_b":
             # Lot B has BOTH horizontal (H-bays) and vertical (V-bays) roads
-            self.road_center_y = 10.0  # H-bay horizontal road
-            self.road_center_x = -4.0   # V-bay vertical road
+            self.road_center_y = 10.0      # H-bay horizontal road
+            # Match the __init__ convention: road flush to V-bay entrance
+            # self.road_center_x = -1.75     # V-bay vertical road center
+            self.road_center_x = -1.5     # V-bay vertical road center
             self.road_orientation = "mixed"
-        
+
         # v38.9: Reinitialize OccupiedBayManager for new lot
         self.occupied_manager = OccupiedBayManager(
             all_bays=self.bays,
             occupancy_rate=0.3,
         )
 
+        # force render reset so Lot A/B visuals don't mix
+        self.fig = None
+        self.ax = None
+        self.car_patch = None
+        self.car_front_stripe = None
+        self.goal_patch = None
+        self.goal_arrow = None
+        self.bay_patches = []
+        self.parked_patches = []
+
+    # def _reset_with_curriculum_spawn(self, seed, options, bay_id):
+    #     """Curriculum-based spawn logic when max_spawn_dist_override is set."""
+    #     level = " Curriculum"
+    #     self.current_tol_pos = 0.5
+    #     self.current_tol_yaw = 0.5
+
+    #     # ---- v41.2: Read overrides ----
+    #     aligned = getattr(self, "aligned_spawn_override", False)
+    #     lateral_offset = getattr(self, "lateral_offset_override", None)
+
+    #     gx = self.goal_bay["x"]
+    #     gy = self.goal_bay["y"]
+    #     gyaw = self.goal_bay["yaw"]
+
+    #     # v41.3: FIX UnboundLocalError - Determine road geometry upfront
+    #     is_horizontal = True
+    #     road_y = 0.0
+    #     road_x = 0.0
+
+    #     if self.lot_name == "lot_b":
+    #         # Detect bay type by ID prefix (H1-H5 vs V1-V6)
+    #         bay_id = self.goal_bay.get("id", "")
+    #         if bay_id.startswith("H"):  # H-bays (horizontal road)
+    #             is_horizontal = True
+    #             road_y = 10.0
+    #         else:  # V-bays (vertical road)
+    #             is_horizontal = False
+    #             road_x = -4.0
+        
+    #     max_dist = self.max_spawn_dist_override if self.max_spawn_dist_override else 20.0
+    #     max_dist = min(max_dist, 8.0)
+
+    #     # ✅ SPECIAL CASE: aligned straight-in spawn (S0/S1 baby stages)
+    #     if aligned:
+    #         # Give the car some run-up distance (v41.2: ensure > 3.0m)
+    #         d_min = 3.0
+    #         d_max = max(4.0, max_dist)
+    #         d = self.random_state.uniform(d_min, d_max)
+
+    #         # v42 FIX: Spawn at distance d BACKWARD from bay center
+    #         # In bay local frame: (-d, 0) where -X is toward entrance
+    #         # Transform to world frame
+    #         spawn_x = gx - d * math.cos(gyaw)
+    #         spawn_y = gy - d * math.sin(gyaw)
+    #         spawn_yaw = gyaw  # Face into bay (same as parking direction)
+
+    #         # Optional lateral offset (for S1 training)
+    #         if lateral_offset is not None:
+    #             # Lateral = along bay width (Y-axis in bay frame)
+    #             spawn_x += lateral_offset * (-math.sin(gyaw))
+    #             spawn_y += lateral_offset * math.cos(gyaw)
+    #     else:
+    #         # 🔁 Existing road-based logic (using pre-calculated geometry)
+    #         dist = self.random_state.uniform(5.0, max_dist)
+
+    #         if self.spawn_side_override == "left":
+    #             direction = -1
+    #         elif self.spawn_side_override == "right":
+    #             direction = 1
+    #         else:
+    #             direction = self.random_state.choice([-1, 1])
+
+    #         if is_horizontal:
+    #             spawn_x = gx + dist * direction
+    #             spawn_y = road_y + self.random_state.uniform(-0.5, 0.5)
+    #             spawn_yaw = 0.0 if direction < 0 else math.pi
+    #         else:
+    #             spawn_x = road_x + self.random_state.uniform(-0.5, 0.5)
+    #             spawn_y = gy + dist * direction
+    #             spawn_yaw = math.pi / 2 if direction < 0 else 3 * math.pi / 2
+
+    #         spawn_yaw += self.random_state.uniform(-0.1, 0.1)
+
+    #     # Debugging Orientation
+    #     print(f"[DEBUG_SPAWN] Bay={self.goal_bay.get('id')} Aligned={aligned} H={is_horizontal} GYaw={gyaw:.2f} SpawnYaw={spawn_yaw:.2f}")
+
+    #     # STRICT ROAD CLAMPING (Updated for 4-corner safety)
+    #     # Road half-width = 3.75m. Car half-width = 0.95m. -> Lateral limit +/- 2.0m
+    #     # Road length = +/- 25.0m. Car half-length = 2.1m. -> Long. limit +/- 22.0m
+        
+    #     if self.lot_name == "lot_a":
+    #         spawn_x = np.clip(spawn_x, -22.0, 22.0) # Safe from road ends
+    #         spawn_y = np.clip(spawn_y, -2.0, 2.0)   # Safe from road sides
+    #     elif self.lot_name == "lot_b":
+    #         if is_horizontal: # H-bays (Road y=10)
+    #             spawn_x = np.clip(spawn_x, -22.0, 22.0)
+    #             spawn_y = np.clip(spawn_y, 8.0, 11.0) # Changed from 12.0 to 11.0
+    #         else: # V-bays (Road x=0)
+    #             spawn_x = np.clip(spawn_x, -6.0, -2.0)
+    #             # Vertical road [-25, 10] + Intersection up to 13.75
+    #             # Max safe Y = 13.75 - 2.1 = 11.65. We use 11.0.
+    #             spawn_y = np.clip(spawn_y, -22.0, 11.0)
+
+    #     # Set state
+    #     self.state = np.array([spawn_x, spawn_y, spawn_yaw, 0.0], dtype=np.float32)
+    #     self.last_steering = 0.0
+    #     self.min_dist_to_goal = float("inf")
+
+    #     obs = self._get_obs()
+    #     info = {"level": level}
+    #     return obs, info
+
     def _reset_with_curriculum_spawn(self, seed, options, bay_id):
-        """Curriculum-based spawn logic when max_spawn_dist_override is set."""
-        level = "v15 Curriculum"
+        """
+        Curriculum-based spawn logic when max_spawn_dist_override is set.
+
+        Uses overrides set by WaypointEnv:
+            - self.max_spawn_dist_override
+            - self.spawn_side_override
+            - self.aligned_spawn_override
+            - self.lateral_offset_override
+        """
+        level = "v42 Curriculum"
         self.current_tol_pos = 0.5
         self.current_tol_yaw = 0.5
 
-        # ---- v41.2: Read overrides ----
-        aligned = getattr(self, "aligned_spawn_override", False)
-        lateral_offset = getattr(self, "lateral_offset_override", None)
+        # -------------------- Read overrides from WaypointEnv --------------------
+        max_dist = (
+            self.max_spawn_dist_override
+            if getattr(self, "max_spawn_dist_override", None) is not None
+            else 20.0
+        )
+        aligned_spawn = bool(getattr(self, "aligned_spawn_override", False))
+        spawn_side = getattr(self, "spawn_side_override", None)
+        lateral_offset = getattr(self, "lateral_offset_override", None) or 0.0
 
+        # Goal bay pose
         gx = self.goal_bay["x"]
         gy = self.goal_bay["y"]
         gyaw = self.goal_bay["yaw"]
 
-        # v41.3: FIX UnboundLocalError - Determine road geometry upfront
-        is_horizontal = True
+        # -------------------- Determine road geometry (for non-aligned) ---------
+        # Default road geometry. For Lot B vertical bays, we align to self.road_center_x.
         road_y = 0.0
-        road_x = 0.0
+        # road_x = getattr(self, "road_center_x", 0.0)
+        road_x = self.road_center_x if self.road_center_x is not None else 0.0
+        is_horizontal = True
 
         if self.lot_name == "lot_b":
-            # Detect bay type by ID prefix (H1-H5 vs V1-V6)
-            bay_id = self.goal_bay.get("id", "")
-            if bay_id.startswith("H"):  # H-bays (horizontal road)
-                is_horizontal = True
+            if self.goal_bay["id"].upper().startswith("H"):
+                # Horizontal road in front of H-bays
                 road_y = 10.0
-            else:  # V-bays (vertical road)
+            else:
+                # Vertical road beside V-bays (center at self.road_center_x if set)
                 is_horizontal = False
-                road_x = -4.0
-        
-        max_dist = self.max_spawn_dist_override if self.max_spawn_dist_override else 20.0
-        max_dist = min(max_dist, 8.0)
 
-        # ✅ SPECIAL CASE: aligned straight-in spawn (S0/S1 baby stages)
-        if aligned:
-            # Give the car some run-up distance (v41.2: ensure > 3.0m)
-            d_min = 3.0
-            d_max = max(4.0, max_dist)
-            d = self.random_state.uniform(d_min, d_max)
 
-            # v42 FIX: Spawn at distance d BACKWARD from bay center
-            # In bay local frame: (-d, 0) where -X is toward entrance
-            # Transform to world frame
-            spawn_x = gx - d * math.cos(gyaw)
-            spawn_y = gy - d * math.sin(gyaw)
-            spawn_yaw = gyaw  # Face into bay (same as parking direction)
+        # -------------------- Aligned spawn: straight-in baby stages -------------
+        if aligned_spawn:
+            # Spawn directly behind the bay entrance, on the bay centerline,
+            # facing the same yaw as the parked car.
+            dist = self.random_state.uniform(4.0, max_dist)
 
-            # Optional lateral offset (for S1 training)
-            if lateral_offset is not None:
-                # Lateral = along bay width (Y-axis in bay frame)
-                spawn_x += lateral_offset * (-math.sin(gyaw))
+            # Move BACK along bay axis in world coordinates (start behind the bay).
+            spawn_x = gx - dist * math.cos(gyaw)
+            spawn_y = gy - dist * math.sin(gyaw)
+
+            # Optional lateral offset (for S1, etc.)
+            if abs(lateral_offset) > 1e-3:
+                # Left = +offset when looking *out* of the bay
+                spawn_x += lateral_offset * -math.sin(gyaw)
                 spawn_y += lateral_offset * math.cos(gyaw)
-        else:
-            # 🔁 Existing road-based logic (using pre-calculated geometry)
-            dist = self.random_state.uniform(5.0, max_dist)
 
-            if self.spawn_side_override == "left":
+            spawn_yaw = gyaw
+
+        else:
+            # -------------------- Legacy road-based spawn (for later stages) -----
+            dist = self.random_state.uniform(2.0, max_dist)
+            # direction = self.random_state.choice([-1, 1])
+
+            # Allow curriculum to force side if needed
+            if spawn_side == "left":
                 direction = -1
-            elif self.spawn_side_override == "right":
+            elif spawn_side == "right":
                 direction = 1
             else:
                 direction = self.random_state.choice([-1, 1])
@@ -355,29 +590,61 @@ class ParkingEnv(gym.Env):
                 spawn_y = gy + dist * direction
                 spawn_yaw = math.pi / 2 if direction < 0 else 3 * math.pi / 2
 
+            # Small heading noise
             spawn_yaw += self.random_state.uniform(-0.1, 0.1)
 
-        # Debugging Orientation
-        print(f"[DEBUG_SPAWN] Bay={self.goal_bay.get('id')} Aligned={aligned} H={is_horizontal} GYaw={gyaw:.2f} SpawnYaw={spawn_yaw:.2f}")
-
-        # STRICT ROAD CLAMPING (Updated for 4-corner safety)
-        # Road half-width = 3.75m. Car half-width = 0.95m. -> Lateral limit +/- 2.0m
-        # Road length = +/- 25.0m. Car half-length = 2.1m. -> Long. limit +/- 22.0m
-        
+        # # -------------------- Road/bounds clamping -------------------------------
+        # if self.lot_name == "lot_a":
+        #     spawn_x = np.clip(spawn_x, -22.0, 22.0)  # Safe from road ends
+        #     spawn_y = np.clip(spawn_y, -2.0, 2.0)    # Safe from road sides
+        # # elif self.lot_name == "lot_b":
+        # #     if is_horizontal:  # H-bays (Road y=10)
+        # #         spawn_x = np.clip(spawn_x, -22.0, 22.0)
+        # #         spawn_y = np.clip(spawn_y, 8.0, 11.0)
+        # #     else:              # V-bays (Road x=0)
+        # #         spawn_x = np.clip(spawn_x, -2.0, 2.0)
+        # #         spawn_y = np.clip(spawn_y, -22.0, 11.0)
+        # elif self.lot_name == "lot_b":
+        #     if is_horizontal:  # H-bays (Road y=10)
+        #         spawn_x = np.clip(spawn_x, -22.0, 22.0)
+        #         spawn_y = np.clip(spawn_y, 8.0, 11.0)
+        #     else:              # V-bays (Road x=self.road_center_x)
+        #         # Clamp around the vertical road center (approx ±2 m)
+        #         x_min = road_x - 2.0
+        #         x_max = road_x + 2.0
+        #         spawn_x = np.clip(spawn_x, x_min, x_max)
+        #         spawn_y = np.clip(spawn_y, -22.0, 11.0)
+        # -------------------- Road/bounds clamping -------------------------------
         if self.lot_name == "lot_a":
-            spawn_x = np.clip(spawn_x, -22.0, 22.0) # Safe from road ends
-            spawn_y = np.clip(spawn_y, -2.0, 2.0)   # Safe from road sides
+            spawn_x = np.clip(spawn_x, -22.0, 22.0)  # Safe from road ends
+            spawn_y = np.clip(spawn_y, -2.0, 2.0)    # Safe from road sides
         elif self.lot_name == "lot_b":
-            if is_horizontal: # H-bays (Road y=10)
+            if is_horizontal:  # H-bays (Road y=10)
                 spawn_x = np.clip(spawn_x, -22.0, 22.0)
-                spawn_y = np.clip(spawn_y, 8.0, 11.0) # Changed from 12.0 to 11.0
-            else: # V-bays (Road x=0)
-                spawn_x = np.clip(spawn_x, -6.0, -2.0)
-                # Vertical road [-25, 10] + Intersection up to 13.75
-                # Max safe Y = 13.75 - 2.1 = 11.65. We use 11.0.
+                spawn_y = np.clip(spawn_y, 8.0, 11.0)
+            else:              # V-bays (Road x=self.road_center_x)
+                # Clamp around the vertical road center (approx ±2 m)
+                x_min = road_x - 2.0
+                x_max = road_x + 2.0
+                spawn_x = np.clip(spawn_x, x_min, x_max)
                 spawn_y = np.clip(spawn_y, -22.0, 11.0)
 
-        # Set state
+        # Optional: spawn debug (only if self.debug is True)
+        if getattr(self, "debug", False):
+            try:
+                print(
+                    f"[DEBUG_SPAWN_v42] lot={self.lot_name} "
+                    f"bay={self.goal_bay.get('id')} "
+                    f"aligned={aligned_spawn} "
+                    f"road_x={road_x:.2f} road_y={road_y:.2f} "
+                    f"spawn=({spawn_x:.2f},{spawn_y:.2f}) "
+                    f"yaw={spawn_yaw:.2f} dist={dist:.2f}"
+                )
+            except Exception:
+                # Never break reset() because of debug printing
+                pass
+
+        # -------------------- Finalize state -------------------------------------
         self.state = np.array([spawn_x, spawn_y, spawn_yaw, 0.0], dtype=np.float32)
         self.last_steering = 0.0
         self.min_dist_to_goal = float("inf")
@@ -428,46 +695,62 @@ class ParkingEnv(gym.Env):
         else:
             self.goal_bay = self.random_state.choice(self.bays)
 
+        # # v41: Baby Parking Support - Disable Obstacles
+        # disable_obstacles = False
+        # if options is not None and "disable_obstacles" in options:
+        #      disable_obstacles = options["disable_obstacles"]
+
+        # if disable_obstacles:
+        #     # Clear all obstacles for C0/C1 stages
+        #     self.occupied_manager.occupied_bay_ids.clear()
+        #     self.occupied_manager.occupied_bay_objects.clear()
+        #     self.occupied_bays = []
+        #     # if self.lot_name == "lot_a":
+        #     print(f"[ParkingEnv] 🧹 Obstacles DISABLED (Baby Parking) in {self.lot_name}")
+        # else:
+        #     # Regular logic: Randomize occupied bays
+        #     # v38.9: Randomize occupied bays (parked cars) each episode
+        #     # Ensures lidar detects parked cars realistically
+        #     self.occupied_manager.randomize_occupancy()
+            
+        #     # CRITICAL: Goal bay must NEVER be occupied
+        #     if self.occupied_manager.is_bay_occupied(self.goal_bay["id"]):
+        #         self.occupied_manager.occupied_bay_ids.remove(self.goal_bay["id"])
+        #         self.occupied_manager.occupied_bay_objects = [
+        #             b for b in self.occupied_manager.occupied_bay_objects
+        #             if b["id"] != self.goal_bay["id"]
+        #         ]
+            
+        #     # Update occupied_bays for lidar detection
+        #     self.occupied_bays = self.occupied_manager.get_all_parked_cars()
+
         # v41: Baby Parking Support - Disable Obstacles
         disable_obstacles = False
         if options is not None and "disable_obstacles" in options:
-             disable_obstacles = options["disable_obstacles"]
+            disable_obstacles = options["disable_obstacles"]
 
         if disable_obstacles:
-            # Clear all obstacles for C0/C1 stages
+            # Clear all obstacles for baby stages
             self.occupied_manager.occupied_bay_ids.clear()
             self.occupied_manager.occupied_bay_objects.clear()
             self.occupied_bays = []
-            if self.lot_name == "lot_a":
-                print(f"[ParkingEnv] 🧹 Obstacles DISABLED (Baby Parking)")
+            print(f"[ParkingEnv] 🧹 Obstacles DISABLED (Baby Parking) in {self.lot_name}")
         else:
-            # Regular logic: Randomize occupied bays
-            # v38.9: Randomize occupied bays (parked cars) each episode
-            # Ensures lidar detects parked cars realistically
-            self.occupied_manager.randomize_occupancy()
-            
-            # CRITICAL: Goal bay must NEVER be occupied
-            if self.occupied_manager.is_bay_occupied(self.goal_bay["id"]):
-                self.occupied_manager.occupied_bay_ids.remove(self.goal_bay["id"])
-                self.occupied_manager.occupied_bay_objects = [
-                    b for b in self.occupied_manager.occupied_bay_objects
-                    if b["id"] != self.goal_bay["id"]
-                ]
-            
-            # Update occupied_bays for lidar detection
-            self.occupied_bays = self.occupied_manager.get_all_parked_cars()
+            # v42: ONLY GOAL BAY EMPTY — all other bays are occupied
+            self._configure_only_goal_bay_empty()
+
 
         goal_x = self.goal_bay["x"]
         goal_y = self.goal_bay["y"]
 
-        # ========== v13.0: AUTO-CURRICULUM ==========
+        # ========== AUTO-CURRICULUM ==========
         # L1: close & aligned
         # L2: medium dist & random yaw
         # L3: full navigation from entrance
 
         valid_spawn = False
         for _ in range(100):
-            # v15: if curriculum override is active, use special reset
+            # : if curriculum override is active, use special reset
             if (
                 hasattr(self, "max_spawn_dist_override")
                 and self.max_spawn_dist_override is not None
@@ -508,7 +791,9 @@ class ParkingEnv(gym.Env):
                         spawn_y = road_y + self.random_state.uniform(-1.0, 1.0)
                         spawn_yaw = 0.0 if offset_x < 0 else math.pi
                     else:
-                        road_x = 0.0
+                        # Use configured vertical road center (e.g., x = -4.0 for Lot B)
+                        road_x = self.road_center_x if self.road_center_x is not None else 0.0
+                        # road_x = 0.0
                         offset_y = (
                             self.random_state.uniform(4.0, 8.0)
                             * self.random_state.choice([-1, 1])
@@ -550,7 +835,9 @@ class ParkingEnv(gym.Env):
                         spawn_y = road_y + self.random_state.uniform(-1.0, 1.0)
                         spawn_yaw = self.random_state.uniform(0, 2 * math.pi)
                     else:
-                        road_x = 0.0
+                        # road_x = 0.0
+                        # Use configured vertical road center (e.g., x = -4.0 for Lot B)
+                        road_x = self.road_center_x if self.road_center_x is not None else 0.0
                         max_offset = min(15.0, 18.0 - abs(goal_y))
                         offset_y = (
                             self.random_state.uniform(8.0, max_offset)
@@ -601,11 +888,14 @@ class ParkingEnv(gym.Env):
                         break
                 elif self.lot_name == "lot_b":
                     if self.goal_bay["id"].upper().startswith("H"):
+                        # Horizontal road at y=10
                         if abs(cy - 10.0) > 2.75:
                             on_road = False
                             break
                     else:
-                        if abs(cx - 0.0) > 2.75:
+                        # Vertical road at self.road_center_x (e.g. -4.0)
+                        road_x = self.road_center_x if self.road_center_x is not None else 0.0
+                        if abs(cx - road_x) > 2.75:
                             on_road = False
                             break
 
@@ -725,23 +1015,50 @@ class ParkingEnv(gym.Env):
             cx_bay = cos_g * dx_c - sin_g * dy_c
             cy_bay = sin_g * dx_c + cos_g * dy_c
 
-            # v41: STRICT SUCCESS CRITERIA
-            # 1. Position Error < 0.2m (Lateral/Longitudinal in bay frame)
-            # 2. Yaw Error < 0.1 rad (approx 6 deg)
-            # 3. Speed < 0.1 m/s (Stopped)
+            # # v41: STRICT SUCCESS CRITERIA
+            # # 1. Position Error < 0.2m (Lateral/Longitudinal in bay frame)
+            # # 2. Yaw Error < 0.1 rad (approx 6 deg)
+            # # 3. Speed < 0.1 m/s (Stopped)
             
-            strict_tol_pos = 0.2
-            strict_tol_yaw = 0.1
-            strict_tol_speed = 0.1 # m/s
+            # strict_tol_pos = 0.2
+            # strict_tol_yaw = 0.1
+            # strict_tol_speed = 0.1 # m/s
             
-            lateral_error = abs(cx_bay)
-            long_error = abs(cy_bay)
+            # # lateral_error = abs(cx_bay)
+            # # long_error = abs(cy_bay)
+            # long_error = abs(cx_bay)    # depth
+            # lateral_error = abs(cy_bay) # side-to-side
+
+            # heading_error = abs(yaw_err)
+            # speed_error = abs(self.state[3])
+            
+            # is_centered = lateral_error < strict_tol_pos and long_error < strict_tol_pos
+            # is_aligned = heading_error < strict_tol_yaw
+            # is_stopped = speed_error < strict_tol_speed
+            
+            # v42.1: SUPER-STRICT SUCCESS CRITERIA
+            # Must look visually "fully parked":
+            #   - Lateral error  < 0.10 m (almost perfectly centered left/right)
+            #   - Longitudinal   < 0.15 m (not hanging out of the bay)
+            #   - Yaw error      < 0.05 rad (~3 deg, almost straight)
+            #   - Speed          < 0.05 m/s (essentially stopped)
+
+            strict_tol_lat = 0.10      # side-to-side tolerance
+            strict_tol_long = 0.15     # depth tolerance
+            strict_tol_yaw = 0.05      # ~3 degrees
+            strict_tol_speed = 0.05    # m/s
+
+            # Bay-frame errors (cx_bay = depth, cy_bay = lateral)
+            long_error = abs(cx_bay)        # depth
+            lateral_error = abs(cy_bay)     # side-to-side
+
             heading_error = abs(yaw_err)
             speed_error = abs(self.state[3])
-            
-            is_centered = lateral_error < strict_tol_pos and long_error < strict_tol_pos
+
+            is_centered = (lateral_error < strict_tol_lat) and (long_error < strict_tol_long)
             is_aligned = heading_error < strict_tol_yaw
-            is_stopped = speed_error < strict_tol_speed
+            is_stopped  = speed_error < strict_tol_speed
+
 
             if is_centered and is_aligned and is_stopped:
                 # v41.3: strict success reward moved to WaypointEnv to avoid double-counting
@@ -795,12 +1112,201 @@ class ParkingEnv(gym.Env):
 
     # ======================= RENDERING =======================
 
+    # def _draw_roads(self):
+    #     """
+    #     Draw simple asphalt roads that roughly match the Gazebo layouts.
+
+    #     - lot_a: one horizontal road between two rows of bays
+    #     - lot_b: T-shaped road (vertical for V1-V5, horizontal for H1-H5)
+    #     """
+    #     road_color = (0.18, 0.18, 0.18)
+    #     road_width = 6.0  # ~6 m total width
+
+    #     if self.lot_name == "lot_a":
+    #         xs = [b["x"] for b in self.bays]
+    #         x_min = min(xs) - self.bay_width
+    #         x_max = max(xs) + self.bay_width
+
+    #         road = Rectangle(
+    #             (x_min, -road_width / 2.0),
+    #             x_max - x_min,
+    #             road_width,
+    #             facecolor=road_color,
+    #             edgecolor="none",
+    #             zorder=0.25,
+    #         )
+    #         self.ax.add_patch(road)
+
+    #     elif self.lot_name == "lot_b":
+    #         v_bays = [b for b in self.bays if b["id"].upper().startswith("V")]
+    #         h_bays = [b for b in self.bays if b["id"].upper().startswith("H")]
+
+    #         # Horizontal leg (in front of H1..H5)
+    #         front_y = None
+    #         if h_bays:
+    #             h_y = min(b["y"] for b in h_bays)
+    #             front_y = h_y - self.bay_length / 2.0
+
+    #             x_min = min(b["x"] for b in h_bays) - self.bay_width / 2.0
+    #             x_max = max(b["x"] for b in h_bays) + self.bay_width / 2.0
+
+    #             road_y_min = front_y - road_width
+    #             horiz_road = Rectangle(
+    #                 (x_min, road_y_min),
+    #                 x_max - x_min,
+    #                 road_width,
+    #                 facecolor=road_color,
+    #                 edgecolor="none",
+    #                 zorder=0.25,
+    #             )
+    #             self.ax.add_patch(horiz_road)
+
+    #         # Vertical leg (beside V1..V5)
+    #         if v_bays:
+    #             y_min = min(b["y"] for b in v_bays) - self.bay_length / 2.0
+    #             if front_y is not None:
+    #                 y_max = front_y
+    #             else:
+    #                 y_max = max(b["y"] for b in v_bays) + self.bay_length / 2.0
+
+    #             v_x = max(b["x"] for b in v_bays)
+    #             road_x_min = v_x + self.bay_length / 2.0
+
+    #             vert_road = Rectangle(
+    #                 (road_x_min, y_min),
+    #                 road_width,
+    #                 y_max - y_min,
+    #                 facecolor=road_color,
+    #                 edgecolor="none",
+    #                 zorder=0.25,
+    #             )
+    #             self.ax.add_patch(vert_road)
+
+    # def _draw_roads(self):
+    #     """
+    #     Draw simple asphalt roads that roughly match the Gazebo layouts.
+
+    #     - lot_a: one horizontal road between two rows of bays
+    #     - lot_b: T-shaped road (vertical for V1-V5, horizontal for H1-V5)
+    #     """
+    #     road_color = (0.18, 0.18, 0.18)
+    #     road_width = 6.0  # ~6 m total width
+
+    #     if self.lot_name == "lot_a":
+    #         xs = [b["x"] for b in self.bays]
+    #         x_min = min(xs) - self.bay_width
+    #         x_max = max(xs) + self.bay_width
+
+    #         road = Rectangle(
+    #             (x_min, -road_width / 2.0),
+    #             x_max - x_min,
+    #             road_width,
+    #             facecolor=road_color,
+    #             edgecolor="none",
+    #             zorder=0.25,
+    #         )
+    #         self.ax.add_patch(road)
+
+    #     elif self.lot_name == "lot_b":
+    #         v_bays = [b for b in self.bays if b["id"].upper().startswith("V")]
+    #         h_bays = [b for b in self.bays if b["id"].upper().startswith("H")]
+
+    #         road_width = 6.0
+    #         road_x_center = self.road_center_x if self.road_center_x is not None else 0.0
+
+    #         # ---------- Horizontal leg (in front of H1..H5) ----------
+    #         if h_bays:
+    #             # y of bay centers
+    #             h_y = min(b["y"] for b in h_bays)
+    #             # entrance line of those bays
+    #             front_y = h_y - self.bay_length / 2.0
+
+    #             x_min = min(b["x"] for b in h_bays) - self.bay_width / 2.0
+    #             x_max = max(b["x"] for b in h_bays) + self.bay_width / 2.0
+
+    #             # road goes right up to the bay entrance
+    #             road_y_min = front_y - road_width
+    #             horiz_road = Rectangle(
+    #                 (x_min, road_y_min),
+    #                 x_max - x_min,
+    #                 road_width,
+    #                 facecolor=road_color,
+    #                 edgecolor="none",
+    #                 zorder=0.25,
+    #             )
+    #             self.ax.add_patch(horiz_road)
+
+    #         # ---------- Vertical leg (beside V1..V5) ----------
+    #         if v_bays:
+    #             y_min = min(b["y"] for b in v_bays) - self.bay_length / 2.0
+    #             # if horizontal leg exists, stop at its entrance line
+    #             if h_bays:
+    #                 h_y = min(b["y"] for b in h_bays)
+    #                 front_y = h_y - self.bay_length / 2.0
+    #                 y_max = front_y
+    #             else:
+    #                 y_max = max(b["y"] for b in v_bays) + self.bay_length / 2.0
+
+    #             x_min = road_x_center - road_width / 2.0
+    #             vert_road = Rectangle(
+    #                 (x_min, y_min),
+    #                 road_width,
+    #                 y_max - y_min,
+    #                 facecolor=road_color,
+    #                 edgecolor="none",
+    #                 zorder=0.25,
+    #             )
+    #             self.ax.add_patch(vert_road)
+
+    #     # elif self.lot_name == "lot_b":
+    #         v_bays = [b for b in self.bays if b["id"].upper().startswith("V")]
+    #         h_bays = [b for b in self.bays if b["id"].upper().startswith("H")]
+
+    #         # Use configured centers as the source of truth
+    #         # Horizontal road: y = self.road_center_y  (e.g. 10.0)
+    #         # Vertical road:   x = self.road_center_x  (e.g. -4.0)
+    #         road_y_center = self.road_center_y if self.road_center_y is not None else 10.0
+    #         road_x_center = self.road_center_x if self.road_center_x is not None else 0.0
+
+    #         # ---------- Horizontal leg (in front of H1..H5) ----------
+    #         if h_bays:
+    #             x_min = min(b["x"] for b in h_bays) - self.bay_width / 2.0
+    #             x_max = max(b["x"] for b in h_bays) + self.bay_width / 2.0
+
+    #             y_min = road_y_center - road_width / 2.0
+    #             horiz_road = Rectangle(
+    #                 (x_min, y_min),
+    #                 x_max - x_min,
+    #                 road_width,
+    #                 facecolor=road_color,
+    #                 edgecolor="none",
+    #                 zorder=0.25,
+    #             )
+    #             self.ax.add_patch(horiz_road)
+
+    #         # ---------- Vertical leg (beside V1..V5) ----------
+    #         if v_bays:
+    #             # Extend from bottom of V-bays up to the horizontal road
+    #             y_min = min(b["y"] for b in v_bays) - self.bay_length / 2.0
+    #             y_max = road_y_center + road_width / 2.0
+
+    #             x_min = road_x_center - road_width / 2.0
+    #             vert_road = Rectangle(
+    #                 (x_min, y_min),
+    #                 road_width,
+    #                 y_max - y_min,
+    #                 facecolor=road_color,
+    #                 edgecolor="none",
+    #                 zorder=0.25,
+    #             )
+    #             self.ax.add_patch(vert_road)
+
     def _draw_roads(self):
         """
         Draw simple asphalt roads that roughly match the Gazebo layouts.
 
         - lot_a: one horizontal road between two rows of bays
-        - lot_b: T-shaped road (vertical for V1-V5, horizontal for H1-H5)
+        - lot_b: T-shaped road (vertical for V1–V5, horizontal for H1–H5)
         """
         road_color = (0.18, 0.18, 0.18)
         road_width = 6.0  # ~6 m total width
@@ -824,18 +1330,18 @@ class ParkingEnv(gym.Env):
             v_bays = [b for b in self.bays if b["id"].upper().startswith("V")]
             h_bays = [b for b in self.bays if b["id"].upper().startswith("H")]
 
-            # Horizontal leg (in front of H1..H5)
-            front_y = None
-            if h_bays:
-                h_y = min(b["y"] for b in h_bays)
-                front_y = h_y - self.bay_length / 2.0
+            # Use configured centers as the source of truth
+            road_y_center = self.road_center_y if self.road_center_y is not None else 10.0
+            road_x_center = self.road_center_x if self.road_center_x is not None else 0.0
 
+            # ---------- Horizontal leg (in front of H1..H5) ----------
+            if h_bays:
                 x_min = min(b["x"] for b in h_bays) - self.bay_width / 2.0
                 x_max = max(b["x"] for b in h_bays) + self.bay_width / 2.0
 
-                road_y_min = front_y - road_width
+                y_min = road_y_center - road_width / 2.0
                 horiz_road = Rectangle(
-                    (x_min, road_y_min),
+                    (x_min, y_min),
                     x_max - x_min,
                     road_width,
                     facecolor=road_color,
@@ -844,19 +1350,15 @@ class ParkingEnv(gym.Env):
                 )
                 self.ax.add_patch(horiz_road)
 
-            # Vertical leg (beside V1..V5)
+            # ---------- Vertical leg (beside V1..V5) ----------
             if v_bays:
+                # From bottom of V-bays up to the horizontal road
                 y_min = min(b["y"] for b in v_bays) - self.bay_length / 2.0
-                if front_y is not None:
-                    y_max = front_y
-                else:
-                    y_max = max(b["y"] for b in v_bays) + self.bay_length / 2.0
+                y_max = road_y_center + road_width / 2.0  # stop at the horizontal road
 
-                v_x = max(b["x"] for b in v_bays)
-                road_x_min = v_x + self.bay_length / 2.0
-
+                x_min = road_x_center - road_width / 2.0
                 vert_road = Rectangle(
-                    (road_x_min, y_min),
+                    (x_min, y_min),
                     road_width,
                     y_max - y_min,
                     facecolor=road_color,
@@ -864,6 +1366,7 @@ class ParkingEnv(gym.Env):
                     zorder=0.25,
                 )
                 self.ax.add_patch(vert_road)
+
 
     def _setup_render(self):
         """Initialize matplotlib figure for visualization."""
@@ -983,7 +1486,7 @@ class ParkingEnv(gym.Env):
         self.ax.add_patch(self.car_patch)
 
         # Car front stripe
-        stripe_width = 0.8
+        stripe_width = 0.2
         self.car_front_stripe = Rectangle(
             (0, 0),
             stripe_width,
@@ -1164,7 +1667,7 @@ class ParkingEnv(gym.Env):
             )
             self.ax.add_patch(self.goal_arrow)
 
-        # v40: Render Occupied Bays (Parked Cars) as GREY rectangles
+        # v40: Render Occupied Bays (Parked Cars) as RED rectangles
         # Crucial for visual debugging of collisions
         if hasattr(self, 'occupied_bays'):
             # Remove old patches if they exist (simple cleanup)
@@ -1205,6 +1708,77 @@ class ParkingEnv(gym.Env):
             # Hide unused patches
             for i in range(len(self.occupied_bays), len(self.parked_patches)):
                 self.parked_patches[i].set_visible(False)
+        
+        # # ---------------- LIDAR RAY VISUALIZATION ----------------
+        # if hasattr(self, "lidar") and self.current_obs is not None:
+        #     try:
+        #         # Remove old rays if they exist
+        #         if not hasattr(self, "_lidar_ray_artists"):
+        #             self._lidar_ray_artists = []
+        #         for artist in self._lidar_ray_artists:
+        #             artist.remove()
+        #         self._lidar_ray_artists.clear()
+
+        #         # Ego pose
+        #         x0, y0, yaw0, _ = self.state
+
+        #         # Lidar values (meters)
+        #         lidar_vals = self.current_obs[5:]  # denormalize if needed
+
+        #         num_rays = len(lidar_vals)
+        #         angle_increment = (2 * math.pi) / num_rays
+
+        #         for i, dist in enumerate(lidar_vals):
+        #             angle = yaw0 + i * angle_increment
+        #             x1 = x0 + dist * math.cos(angle)
+        #             y1 = y0 + dist * math.sin(angle)
+
+        #             ray = self.ax.plot(
+        #                 [x0, x1], [y0, y1],
+        #                 color="orange",
+        #                 linewidth=0.8,
+        #                 alpha=0.4,
+        #                 zorder=1
+        #             )[0]
+
+        #             self._lidar_ray_artists.append(ray)
+
+        #     except Exception:
+        #         pass
+
+        # ---------------- LIDAR RAY VISUALIZATION (fixed) ----------------
+        if hasattr(self, "lidar") and self.current_obs is not None:
+            try:
+                if not hasattr(self, "_lidar_ray_artists"):
+                    self._lidar_ray_artists = []
+                for artist in self._lidar_ray_artists:
+                    artist.remove()
+                self._lidar_ray_artists.clear()
+
+                # ✅ Use exactly what PPO sees (meters, already clipped)
+                lidar_vals = self.current_obs[5:]   # no scaling
+
+                x0, y0, yaw0, _ = self.state
+                num_rays = len(lidar_vals)
+                angle_increment = (2 * math.pi) / num_rays
+
+                for i, dist in enumerate(lidar_vals):
+                    angle = yaw0 + i * angle_increment
+                    x1 = x0 + dist * math.cos(angle)
+                    y1 = y0 + dist * math.sin(angle)
+
+                    ray = self.ax.plot(
+                        [x0, x1], [y0, y1],
+                        color="orange",
+                        linewidth=0.8,
+                        alpha=0.4,
+                        zorder=1,
+                    )[0]
+                    self._lidar_ray_artists.append(ray)
+
+            except Exception:
+                pass
+
 
         # For Agg / video capture
         self.fig.canvas.draw()
@@ -1229,7 +1803,33 @@ class ParkingEnv(gym.Env):
         # Only render if we have waypoints (WaypointEnv sets this)
         if not hasattr(self, 'waypoints') or self.waypoints is None or len(self.waypoints) == 0:
             return
+
+        # ---------- CLEAR OLD OVERLAYS (critical to avoid accumulation) ----------
+        # Remove corridor lines
+        if hasattr(self, "v34_corridor_lines") and self.v34_corridor_lines:
+            for line in self.v34_corridor_lines:
+                try:
+                    line.remove()
+                except Exception:
+                    pass
+            self.v34_corridor_lines = []
         
+        # Remove bay 8-point scatter
+        if hasattr(self, "v34_bay_scatter") and self.v34_bay_scatter:
+            try:
+                self.v34_bay_scatter.remove()
+            except Exception:
+                pass
+            self.v34_bay_scatter = None
+        
+        # Remove waypoint scatter
+        if hasattr(self, "v34_wp_scatter") and self.v34_wp_scatter:
+            try:
+                self.v34_wp_scatter.remove()
+            except Exception:
+                pass
+            self.v34_wp_scatter = None
+
         try:
             from ..utils.v34_visualization import (
                 compute_path_tangents,
@@ -1242,25 +1842,43 @@ class ParkingEnv(gym.Env):
             left_boundary, right_boundary = calculate_corridor_boundaries(
                 waypoints_corrected, self.goal_bay, corridor_width=3.0
             )
+
+            self.v34_corridor_lines = []
             
+            # if left_boundary and len(left_boundary) > 0:
+            #     left_x, left_y = zip(*left_boundary)
+            #     left_line = self.ax.plot(left_x, left_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)
+            #     self.v34_corridor_lines.append(left_line)
+            
+            # if right_boundary and len(right_boundary) > 0:
+            #     right_x, right_y = zip(*right_boundary)
+            #     right_line = self.ax.plot(right_x, right_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)
+            #     self.v34_corridor_lines.append(right_line)
             if left_boundary and len(left_boundary) > 0:
                 left_x, left_y = zip(*left_boundary)
-                self.ax.plot(left_x, left_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)
-            
+                (left_line,) = self.ax.plot(
+                    left_x, left_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2
+                )
+                self.v34_corridor_lines.append(left_line)
+
             if right_boundary and len(right_boundary) > 0:
                 right_x, right_y = zip(*right_boundary)
-                self.ax.plot(right_x, right_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)
+                (right_line,) = self.ax.plot(
+                    right_x, right_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2
+                )
+                self.v34_corridor_lines.append(right_line)
+
             
             # 2. Draw 8-point bay reference (cyan dots)
             bay_points = calculate_8_point_bay_reference(self.goal_bay)
             if bay_points and len(bay_points) > 0:
                 cyan_x, cyan_y = zip(*bay_points)
-                self.ax.scatter(cyan_x, cyan_y, c='cyan', s=15, zorder=22, 
+                self.v34_bay_scatter = self.ax.scatter(cyan_x, cyan_y, c='cyan', s=15, zorder=22, 
                               edgecolors='black', linewidth=0.5, alpha=0.7)
             
             # 3. Draw waypoint path (yellow dots)
             wps = np.array(self.waypoints)
-            self.ax.scatter(wps[:, 0], wps[:, 1], c='yellow', s=20, zorder=20,
+            self.v34_wp_scatter =  self.ax.scatter(wps[:, 0], wps[:, 1], c='yellow', s=20, zorder=20,
                           edgecolors='black', linewidth=0.5, alpha=0.7)
         
         except Exception as e:

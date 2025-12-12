@@ -57,6 +57,8 @@ class WaypointEnv(ParkingEnv):
         bay_entry_bonus: float = 60.0,
         corridor_penalty: float = 0.05,  # v38.9: Relaxed from 0.5 for early training
         vel_reward_w: float = 0.05,
+        anti_freeze_penalty: float = 0.01,    # v42: New tunable
+        backward_penalty_weight: float = 2.0, # v42: New tunable
         **kwargs,
     ):
         """
@@ -78,7 +80,11 @@ class WaypointEnv(ParkingEnv):
         self.verbose = verbose
         self.use_reeds_shepp = use_reeds_shepp
         self.reeds_shepp_turning_radius = reeds_shepp_turning_radius
-        self.episode_id: int = 0     
+        self.episode_id: int = 0
+
+        # v42: Lidar convention – ParkingEnv returns normalized [0,1] distances
+        # corresponding to [0, lidar_max_range] meters.
+        self.lidar_max_range = 20.0  # keep in sync with EnhancedLidar / ParkingEnv  
 
         # Store tuning params
         self.corridor_penalty_weight = corridor_penalty
@@ -163,7 +169,8 @@ class WaypointEnv(ParkingEnv):
         self.waypoint_rewards = WaypointRewardCalculator(
             velocity_reward_weight=vel_reward_w,   # v38.8: Tuned param
             low_velocity_penalty=0.01,
-            anti_freeze_penalty=0.02,
+            anti_freeze_penalty=anti_freeze_penalty,        # v42: Tunable param
+            backward_penalty_weight=backward_penalty_weight # v42: Tunable param
         )
         self.parking_rewards = ParkingRewardCalculator(
             bay_length=5.5,
@@ -443,6 +450,7 @@ class WaypointEnv(ParkingEnv):
                 {"name": "quarter", "dist": 1.375},      # 1/4 depth into bay
                 {"name": "goal", "dist": 0.0},           # Bay center (parking target)
                 {"name": "deep", "dist": -1.375},        # 3/4 depth (final settle)
+                {"name": "back", "dist": -2.5},          # Near back wall (final target)
             ]
             
             final_waypoints = []
@@ -460,46 +468,34 @@ class WaypointEnv(ParkingEnv):
                 wh = 0.0  # Placeholder, will be computed from path tangents
                 
                 final_waypoints.append((wx, wy, wh))
+            
+            # Let A* plan to the "pre-entrance" point. This ensures a smooth
+            # transition from the road onto the bay's approach axis.
+            astar_goal = final_waypoints[0] 
 
-            # # v42 FIX: Add transition waypoint to prevent shortcutting
-            # if len(final_waypoints) > 0:
-            #     staging_x, staging_y, staging_yaw = road_path[-1]
-            #     entrance_x, entrance_y, _ = final_waypoints[0]
-                
-            #     # Midpoint between staging (on road) and pre-entrance
-            #     mid_x = (staging_x + entrance_x) / 2.0
-            #     mid_y = (staging_y + entrance_y) / 2.0
-            #     mid_yaw = staging_yaw
-                
-            #     full_path = road_path + [(mid_x, mid_y, mid_yaw)] + final_waypoints
-            # else:
-            #     full_path = road_path + final_waypoints
+            # Plan from the forward launch point to the pre-entrance waypoint
+            road_path = self.planner.plan(forward_wp, astar_goal, obstacles)
+            if road_path is None or len(road_path) < 2:
+                # Fallback if A* fails: straight line from launch to pre-entrance
+                road_path = [forward_wp, astar_goal]
 
-            # 🔧 v46 FIX: Add MORE transition waypoints for smoother connection
-            # This ensures A* path connects smoothly to bay entrance
-            if len(final_waypoints) > 0:
-                staging_x, staging_y, staging_yaw = road_path[-1]
-                entrance_x, entrance_y, _ = final_waypoints[0]
-                
-                # 🔧 NEW: Add 2 intermediate waypoints instead of 1
-                # This creates a smoother transition arc from road to bay
-                # Using interpolation at 1/3 and 2/3 along the path
-                transition_wps = []
-                for t in [0.33, 0.67]:
-                    trans_x = staging_x + (entrance_x - staging_x) * t
-                    trans_y = staging_y + (entrance_y - staging_y) * t
-                    # Gradually transition orientation from staging to entrance
-                    trans_yaw = staging_yaw  # Keep staging orientation for smoother curve
-                    transition_wps.append((trans_x, trans_y, trans_yaw))
-                
-                full_path = road_path + transition_wps + final_waypoints
-            else:
-                full_path = road_path + final_waypoints
+            # Prepend the true start pose
+            initial_path = [start] + road_path
+
+            # The full path is the A* path followed by the final guidance points
+            # The A* goal (pre-entrance) is the same as the first guidance point, so we skip it
+            # to avoid duplication.
+            full_path = initial_path + final_waypoints[1:]
             
             # CRITICAL FIX: Recompute orientations from path tangents
             # This ensures waypoints follow the actual path direction, not goal_yaw
             from ..planning.corridor import compute_path_tangents
             full_path = compute_path_tangents(full_path)
+
+            # v42 FIX: Override final waypoint to match bay orientation
+            if len(full_path) > 0:
+                final_x, final_y, _ = full_path[-1]
+                full_path[-1] = (final_x, final_y, self.goal_yaw)
 
             # ----- Smooth path: B-spline (default) or Reeds-Shepp (optional) -----
             if self.use_reeds_shepp:
@@ -526,7 +522,9 @@ class WaypointEnv(ParkingEnv):
                 print(f"[FIX CHECK] Waypoints: {len(self.waypoints)}, "
                       f"Last→Goal: {dist_to_goal:.3f}m, "
                       f"Yaw error: {np.degrees(yaw_error):.1f}°")
-                if dist_to_goal > 0.5:
+                # Accept anything within ~60% of bay length from center
+                max_ok = self.bay_length * 0.6  # 0.6 * 5.5 ≈ 3.3m
+                if dist_to_goal > max_ok:
                     print(f"  ⚠️  WARNING: Last waypoint too far from goal!")
                 else:
                     print(f"  ✅ PASS: Waypoints reach goal properly")
@@ -1157,28 +1155,98 @@ class WaypointEnv(ParkingEnv):
                 by_car / max_dist,
             ])
         
-        # FIXED: Use world bounds for normalization (was / 10.0 with clip)
-        max_dist = 25.0
+        # # FIXED: Use world bounds for normalization (was / 10.0 with clip)
+        # max_dist = 25.0
+        # return np.array(
+        #     [
+        #         local_dx_wp / max_dist,      # Normalize local waypoint position
+        #         local_dy_wp / max_dist,
+        #         dtheta_wp / np.pi,                        # Normalize angle
+        #         v / max(self.max_speed, 1e-6),           # Normalize velocity using env limit
+        #         np.clip(dist_to_wp / 20.0, 0, 1),        # Normalize distance
+        #         np.clip(cx_bay / 10.0, -1, 1),           # Normalize bay-frame x (center)
+        #         np.clip(cy_bay / 10.0, -1, 1),           # Normalize bay-frame y (center)
+        #         yaw_err_goal / np.pi,                     # Normalize goal yaw error
+        #         np.clip(dist_to_goal / 20.0, 0, 1),      # Normalize goal distance
+        #         waypoint_progress,                        # Already [0, 1]
+        #         is_near_goal,                             # Already binary {0, 1}
+        #         goal_side,                                # v32: +1 (A-row) or -1 (B-row)
+        #         *bay_points_car,                          # v32: 8 points x 2 coords = 16 dims
+        #         *next_wps,                                # v29: Next 2 waypoints (6 dims)
+        #         *np.clip(lidar / 20.0, 0.0, 1.0),        # v41: Normalized lidar (0-1 range)
+        #     ],
+        #     dtype=np.float32,
+        # )
+        # AFTER (_get_waypoint_obs() normalization block at the end)
+
+        # Unified normalization using world bounds / ranges
+        max_dist_world = 25.0
+        max_goal_dist = 25.0
+
         return np.array(
             [
-                local_dx_wp / max_dist,      # Normalize local waypoint position
-                local_dy_wp / max_dist,
-                dtheta_wp / np.pi,                        # Normalize angle
-                v / max(self.max_speed, 1e-6),           # Normalize velocity using env limit
-                np.clip(dist_to_wp / 20.0, 0, 1),        # Normalize distance
-                np.clip(cx_bay / 10.0, -1, 1),           # Normalize bay-frame x (center)
-                np.clip(cy_bay / 10.0, -1, 1),           # Normalize bay-frame y (center)
-                yaw_err_goal / np.pi,                     # Normalize goal yaw error
-                np.clip(dist_to_goal / 20.0, 0, 1),      # Normalize goal distance
-                waypoint_progress,                        # Already [0, 1]
-                is_near_goal,                             # Already binary {0, 1}
-                goal_side,                                # v32: +1 (A-row) or -1 (B-row)
-                *bay_points_car,                          # v32: 8 points x 2 coords = 16 dims
-                *next_wps,                                # v29: Next 2 waypoints (6 dims)
-                *np.clip(lidar / 20.0, 0.0, 1.0),        # v41: Normalized lidar (0-1 range)
+                # Waypoint-relative (meters → [-1, 1]-ish)
+                local_dx_wp / max_dist_world,
+                local_dy_wp / max_dist_world,
+                dtheta_wp / np.pi,                                  # [-1, 1]
+                v / max(self.max_speed, 1e-6),                      # [-1, 1]
+
+                # Distances (0–1)
+                np.clip(dist_to_wp / max_goal_dist, 0.0, 1.0),
+                np.clip(cx_bay / max_dist_world, -1.0, 1.0),        # bay-frame x
+                np.clip(cy_bay / max_dist_world, -1.0, 1.0),        # bay-frame y
+                yaw_err_goal / np.pi,                               # [-1, 1]
+                np.clip(dist_to_goal / max_goal_dist, 0.0, 1.0),
+
+                # Progress / flags
+                waypoint_progress,
+                is_near_goal,
+                goal_side,
+
+                # Bay geometry (already normalized by max_dist_world)
+                *bay_points_car,
+
+                # Lookahead waypoints (already normalized in next_wps)
+                *next_wps,
+
+                # Lidar (already normalized 0–1 by ParkingEnv)
+                *np.clip(lidar, 0.0, 1.0),
             ],
             dtype=np.float32,
         )
+
+        # return np.array(
+        #     [
+        #         # Waypoint-relative (meters → [-1, 1]-ish)
+        #         local_dx_wp / max_dist_world,
+        #         local_dy_wp / max_dist_world,
+        #         dtheta_wp / np.pi,                                  # [-1, 1]
+        #         v / max(self.max_speed, 1e-6),                      # [-1, 1]
+
+        #         # Distances (0–1)
+        #         np.clip(dist_to_wp / max_goal_dist, 0.0, 1.0),
+        #         np.clip(cx_bay / max_dist_world, -1.0, 1.0),        # bay-frame x
+        #         np.clip(cy_bay / max_dist_world, -1.0, 1.0),        # bay-frame y
+        #         yaw_err_goal / np.pi,                               # [-1, 1]
+        #         np.clip(dist_to_goal / max_goal_dist, 0.0, 1.0),
+
+        #         # Progress / flags
+        #         waypoint_progress,
+        #         is_near_goal,
+        #         goal_side,
+
+        #         # Bay geometry (already normalized by max_dist_world)
+        #         *bay_points_car,
+
+        #         # Lookahead waypoints (already normalized in next_wps)
+        #         *next_wps,
+
+        #         # Lidar (0–1)
+        #         *np.clip(lidar / 20.0, 0.0, 1.0),
+        #     ],
+        #     dtype=np.float32,
+        # )
+
 
     # ------------------------------------------------------------------ #
     # Waypoint threshold
@@ -1238,11 +1306,11 @@ class WaypointEnv(ParkingEnv):
         # 2. Map to physical limits
         steer_cmd = steer_norm * self.max_steer
         # v_cmd logic: simplified direct mapping for now
-        v_cmd = accel_norm * self.max_speed
+        v_cmd = accel_norm * self.max_speed  # accel_norm controls velocity directly
         
         # 3. Call physics step with correct order [v, steer]
-        physics_action = np.array([v_cmd, steer_cmd], dtype=np.float32)
-        obs, physics_reward, terminated, truncated, info = super().step(physics_action)
+        # BUG FIX: The action to the parent env must be [v_cmd, steer_cmd].
+        obs, physics_reward, terminated, truncated, info = super().step([v_cmd, steer_cmd])
         self.current_obs = obs  # v40: Capture for lidar reward logic
         self._episode_steps += 1
 
@@ -1272,8 +1340,8 @@ class WaypointEnv(ParkingEnv):
             wx, wy, _ = self.goal_x, self.goal_y, self.goal_yaw
         
         dist_to_wp_raw = np.linalg.norm([x - wx, y - wy])
-        # Normalize to [0,1] to match old behavior (dist / 20m, clipped)
-        dist_to_wp_norm = np.clip(dist_to_wp_raw / 20.0, 0.0, 1.0)
+        # # Normalize to [0,1] to match old behavior (dist / 20m, clipped)
+        # dist_to_wp_norm = np.clip(dist_to_wp_raw / 20.0, 0.0, 1.0)
 
         # ===== MODULAR REWARD CALCULATION =====
         reward_terms = {}  # Track components for debugging
@@ -1489,22 +1557,103 @@ class WaypointEnv(ParkingEnv):
         else:
             self.time_near_goal = 0
 
-        # ===== Success Alignment Check =====
-        well_aligned = (
-            abs(cy_bay) < success_cy
-            and yaw_err < success_yaw
-            and abs(cx_bay) < 3.0
-        )
+        # # ===== Success Alignment Check =====
+        # well_aligned = (
+        #     abs(cy_bay) < success_cy
+        #     and yaw_err < success_yaw
+        #     and abs(cx_bay) < 3.0
+        # )
 
-        # CRITICAL FIX: Add velocity check to ensure agent stops (not just passes through)
-        # BUT: Make it optional if agent is VERY close and aligned (to prevent infinite episodes)
-        is_stopped = abs(v) < 0.3  # m/s (~1 km/h)
-        very_close = dist_to_goal < 1.0  # Within 1m
+        # # CRITICAL FIX: Add velocity check to ensure agent stops (not just passes through)
+        # # BUT: Make it optional if agent is VERY close and aligned (to prevent infinite episodes)
+        # is_stopped = abs(v) < 0.3  # m/s (~1 km/h)
+        # very_close = dist_to_goal < 1.0  # Within 1m
         
-        # Success if: (aligned AND close AND stopped) OR (aligned AND VERY close)
-        if well_aligned and ((dist_to_goal < 2.0 and is_stopped) or very_close):
-            # v38: SUCCESS BONUS (SCALED: was 10.0, now 50.0)
-            # Must be significantly larger than the final waypoint bonus (~5)
+        # # Success if: (aligned AND close AND stopped) OR (aligned AND VERY close)
+        # if well_aligned and ((dist_to_goal < 2.0 and is_stopped) or very_close):
+        #     # v38: SUCCESS BONUS (SCALED: was 10.0, now 50.0)
+        #     # Must be significantly larger than the final waypoint bonus (~5)
+        #     success_bonus = self.parking_rewards.success_bonus
+        #     reward += success_bonus
+        #     reward_terms["success_bonus"] = success_bonus
+        #     success = True
+        #     terminated = True
+        #     info["success"] = True
+        #     self._last_success = True
+        #     info["parking_quality"] = {
+        #         "lateral_offset": float(abs(cy_bay)),
+        #         "yaw_error": float(yaw_err),
+        #         "depth": float(abs(cx_bay)),
+        #     }
+        #     if self.verbose:
+        #         print(
+        #             f"✅ PARK SUCCESS: cy={abs(cy_bay):.3f}m, "
+        #             f"yaw_err={yaw_err:.3f}rad ({np.degrees(yaw_err):.1f}°), "
+        #             f"cx={abs(cx_bay):.3f}m"
+        #         )
+
+        # # ===== Success Alignment Check (v42 strict) =====
+        # # Use curriculum thresholds, but clamp to strict final values
+        # strict_lat  = min(success_cy,  0.10)  # <= 10 cm lateral
+        # strict_yaw  = min(success_yaw, 0.05)  # <= ~3 degrees
+        # strict_long = 0.15                    # <= 15 cm depth error around bay center
+        # speed_tol   = 0.05                    # almost fully stopped
+
+        # lateral_ok = abs(cy_bay) < strict_lat
+        # yaw_ok     = yaw_err < strict_yaw
+        # long_ok    = abs(cx_bay) < strict_long
+        # is_stopped = abs(v) < speed_tol
+        # very_close = dist_to_goal < 0.75      # really close to bay center
+
+        # well_aligned = lateral_ok and yaw_ok and long_ok
+
+        # # Success ONLY when car is very close, well aligned, and essentially stopped
+        # if well_aligned and is_stopped and dist_to_goal < 1.0:
+        #     success_bonus = self.parking_rewards.success_bonus
+        #     reward += success_bonus
+        #     reward_terms["success_bonus"] = success_bonus
+        #     success = True
+        #     terminated = True
+        #     info["success"] = True
+        #     self._last_success = True
+        #     info["parking_quality"] = {
+        #         "lateral_offset": float(abs(cy_bay)),
+        #         "yaw_error": float(yaw_err),
+        #         "depth": float(abs(cx_bay)),
+        #     }
+        #     if self.verbose:
+        #         print(
+        #             f"✅ PARK SUCCESS (STRICT): cy={abs(cy_bay):.3f}m, "
+        #             f"yaw_err={yaw_err:.3f}rad ({np.degrees(yaw_err):.1f}°), "
+        #             f"cx={abs(cx_bay):.3f}m"
+        #         )
+
+        # ===== Success Alignment Check (RELAXED v42) =====
+        # Use curriculum thresholds directly, and set softer minimums.
+        # This makes success more achievable during training.
+        #
+        # Typical tolerances:
+        #  - lateral:  <= 0.20 m
+        #  - yaw:      <= ~6 degrees (0.10 rad)
+        #  - depth:    <= 0.40 m around bay center
+        #  - speed:    almost stopped, but not ultra-strict
+
+        # Fall back to sensible defaults if curriculum thresholds are None
+        lat_tol  = success_cy  if success_cy  is not None else 0.20
+        yaw_tol  = success_yaw if success_yaw is not None else 0.10
+        long_tol = 0.40   # meters
+        speed_tol = 0.15  # m/s (~0.5 km/h, relaxed from 0.05)
+        close_tol = 1.5   # meters to goal center (was 0.75–1.0)
+
+        lateral_ok = abs(cy_bay) < lat_tol
+        yaw_ok     = yaw_err < yaw_tol
+        long_ok    = abs(cx_bay) < long_tol
+        is_stopped = abs(v) < speed_tol
+
+        well_aligned = lateral_ok and yaw_ok and long_ok
+
+        # Success when car is reasonably close, well aligned, and almost stopped
+        if well_aligned and dist_to_goal < close_tol and is_stopped:
             success_bonus = self.parking_rewards.success_bonus
             reward += success_bonus
             reward_terms["success_bonus"] = success_bonus
@@ -1519,9 +1668,11 @@ class WaypointEnv(ParkingEnv):
             }
             if self.verbose:
                 print(
-                    f"✅ PARK SUCCESS: cy={abs(cy_bay):.3f}m, "
-                    f"yaw_err={yaw_err:.3f}rad ({np.degrees(yaw_err):.1f}°), "
-                    f"cx={abs(cx_bay):.3f}m"
+                    f"✅ PARK SUCCESS (RELAXED): "
+                    f"cy={abs(cy_bay):.3f}m (tol={lat_tol:.3f}), "
+                    f"yaw_err={yaw_err:.3f}rad ({np.degrees(yaw_err):.1f}°; tol={np.degrees(yaw_tol):.1f}°), "
+                    f"cx={abs(cx_bay):.3f}m (tol={long_tol:.3f}), "
+                    f"dist={dist_to_goal:.3f}m, v={v:.3f}m/s"
                 )
 
         # ===== Termination conditions (environment-specific) =====
@@ -1574,7 +1725,7 @@ class WaypointEnv(ParkingEnv):
 
         # Timeout
         done = terminated or truncated
-        if self.steps >= self.max_steps:
+        if self._episode_steps >= self.max_steps:
             truncated = True
             done = True
 
@@ -1582,33 +1733,18 @@ class WaypointEnv(ParkingEnv):
         obs = self._get_waypoint_obs()
 
         # ===== Store metrics =====
-        info["waypoint_idx"] = self.current_waypoint_idx
-        info["total_waypoints"] = len(self.waypoints)
-        info["dist_to_goal"] = dist_to_goal
-        info["reward_terms"] = reward_terms  # For debugging/analysis
+        # info["waypoint_idx"] = self.current_waypoint_idx
+        # info["total_waypoints"] = len(self.waypoints)
+        # info["dist_to_goal"] = dist_to_goal
+        # info["reward_terms"] = reward_terms  # For debugging/analysis
 
         # Set failure flag if terminated without success
         if (terminated or truncated) and not info.get("success", False):
             self._last_success = False
 
         # v38.7: EP_METRICS logging for hyperparameter tuning
-        if done and self.verbose:
-            path_completion = self.current_waypoint_idx / max(len(self.waypoints) - 1, 1)
-            coll = 1 if info.get("terminated_collision", False) else 0
-            offpath = 1 if info.get("terminated_off_path", False) else 0
-            print(f"[EP_METRICS] rew={reward:.1f} path={path_completion:.2f} "
-                  f"succ={int(success)} dist={dist_to_goal:.2f} coll={coll} offpath={offpath}")
-
-        # ===== Curriculum update =====
-        if (
-            done
-            and self.enable_curriculum
-            and self.curriculum is not None
-        ):
-            self.curriculum.update_after_episode(
-                success=bool(success),
-                steps=self._episode_steps,
-            )
+        # v40 NOTE: We first add smoothness / obstacle / overlap rewards so that
+        #           the printed `rew` matches the final reward seen by PPO.
 
         # 6. Smoothness Reward (v40)
         # Penalize jerky steering to encourage smooth trajectories
@@ -1621,62 +1757,109 @@ class WaypointEnv(ParkingEnv):
         reward_terms["smoothness"] = smoothness_penalty
         self.prev_steer = current_steer
 
+        # # 7. Near-Obstacle Penalty (v40)
+        # # Continuous penalty for being too close to obstacles (safety buffer)
+        # # current_obs structure: [local_x, local_y, yaw_err, v, dist, lidar_0 ... lidar_63]
+        # # Lidar starts at index 5 (after 5 state vars)
+        # lidar_data = self.current_obs[5:]  # v40 FIX: Correct index (was 34)
+        # min_lidar_dist = np.min(lidar_data)
+
+        # # Buffer zone: 0.5m
+        # if min_lidar_dist < 0.5:
+        #     # Linear penalty as we get closer (can tune)
+        #     obstacle_penalty = -5.0 * (0.5 - min_lidar_dist)
+        # else:
+        #     obstacle_penalty = 0.0
+        # reward_terms["obstacle_safety"] = obstacle_penalty
+
         # 7. Near-Obstacle Penalty (v40)
         # Continuous penalty for being too close to obstacles (safety buffer)
-        # info["lidar"] contains 64 rays. Min distance is closest obstacle.
-        # ParkingEnv.step() computes lidar but doesn't return it in info by default?
-        # It lives in obs. Let's extract from observer state or similar.
-        # Actually ParkingEnv computes it in _get_obs().
-        # We can re-access self.lidar.last_scan if available or re-compute min.
-        # For efficiency, let's look at 'obs'.
-        # obs structure: [local_x, local_y, yaw_err, v, dist, lidar_0 ... lidar_63]
+        # current_obs structure: [local_x, local_y, yaw_err, v, dist, lidar_0 ... lidar_63]
         # Lidar starts at index 5 (after 5 state vars)
-        lidar_data = self.current_obs[5:] # v40 FIX: Correct index (was 34)
-        min_lidar_dist = np.min(lidar_data)
-        
+        # lidar_data = self.current_obs[5:]  # v40 FIX: Correct index (was 34)
+        # Assume first 5 entries are [local_x, local_y, yaw_err, v, dist], rest = lidar
+        if self.current_obs is not None and self.current_obs.shape[0] > 5:
+            lidar_data = self.current_obs[5:]
+        else:
+            lidar_data = np.array([1.0], dtype=np.float32)  # "no obstacle" fallback
+
+        min_lidar_norm = float(np.min(lidar_data))
+
+        # Convert back to meters if ParkingEnv already normalized by /20.0
+        min_lidar_m = min_lidar_norm * self.lidar_max_range
+
         # Buffer zone: 0.5m
-        if min_lidar_dist < 0.5:
-            # Exponential penalty as we get closer
-            # at 0.5m -> 0
-            # at 0.1m -> -High
-            obstacle_penalty = -5.0 * (0.5 - min_lidar_dist)
+        if min_lidar_m < 0.5:
+            # Linear penalty as we get closer (can tune)
+            obstacle_penalty = -5.0 * (0.5 - min_lidar_m)
         else:
             obstacle_penalty = 0.0
         reward_terms["obstacle_safety"] = obstacle_penalty
 
         # 8. Continuous Bay Overlap Reward (v40)
-        # Replaces simple "entry bonus" with dense IoU-like progress
-        # Calculate intersection area between Car and Goal Bay
+        # Dense reward for being inside the goal bay (IoU-like)
         car_poly = self._get_car_polygon(x, y, yaw)
-        # Goal bay polygon (static, could cache but cheap to compute)
         goal_poly = self._get_bay_polygon(self.goal_bay)
-        
+
         intersection_area = car_poly.intersection(goal_poly).area
         car_area = self.car_length * self.car_width
-        overlap_ratio = intersection_area / car_area
-        
-        # Scale reward: Max overlap is ~1.0. 
-        # Weighted to be significant but not overpowering.
-        # Say max +5.0 per step? Or is this a bonus?
-        # If it's per step, it accumulates huge.
-        # Should be a POTENTIAL-based reward (diff from prev) OR a small density.
-        # Let's make it a dense reward for *being* in the bay.
-        overlap_reward = 2.0 * overlap_ratio * overlap_ratio # quadratic for peak centering
+        overlap_ratio = intersection_area / car_area if car_area > 0 else 0.0
+
+        # Quadratic shaping so center alignment is most rewarded
+        overlap_reward = 2.0 * overlap_ratio * overlap_ratio
         reward_terms["bay_overlap"] = overlap_reward
 
-        # Sum up new v40 rewards
+        # Sum up new v40 rewards into final reward
         reward += smoothness_penalty + obstacle_penalty + overlap_reward
 
-        # Update info with v40 metrics
-        info["reward_terms"] = reward_terms
+        # ===== Store metrics (flat + nested for easier logging) =====
+        total_segments = max(len(self.waypoints) - 1, 1)
+        path_completion = self.current_waypoint_idx / total_segments
+
+        # Flat fields (easy to log / plot)
+        info["waypoint_idx"] = self.current_waypoint_idx
+        info["total_waypoints"] = len(self.waypoints)          # raw count of waypoints
+        info["current_wp"] = self.current_waypoint_idx         # duplicate, flat
+        info["total_wps"] = total_segments                     # usable denominator
+        info["path_completion"] = path_completion
+        info["dist_to_goal"] = dist_to_goal
         info["overlap_ratio"] = overlap_ratio
+        info["reward_terms"] = reward_terms
+
+        # Nested helper for convenience (if you want a dict)
+        info["waypoint_progress"] = {
+            "current_wp": self.current_waypoint_idx,
+            "total_wps": total_segments,
+        }
+
+        # v38.7: EP_METRICS logging (now uses FINAL reward)
+        if done and self.verbose:
+            coll = 1 if info.get("terminated_collision", False) else 0
+            offpath = 1 if info.get("terminated_off_path", False) else 0
+            print(
+                f"[EP_METRICS] rew={reward:.1f} "
+                f"path={path_completion:.2f} "
+                f"wp={self.current_waypoint_idx}/{total_segments} "
+                f"succ={int(success)} dist={dist_to_goal:.2f} "
+                f"coll={coll} offpath={offpath}"
+            )
+
+        # ===== Curriculum update =====
+        if (
+            done
+            and self.enable_curriculum
+            and self.curriculum is not None
+        ):
+            self.curriculum.update_after_episode(
+                success=bool(success),
+                steps=self._episode_steps,
+            )
 
         # v40: Respect ParkingEnv collision termination
         # (It already set terminated=True and processed crash penalty in super().step())
-        # We just ensure we don't accidentally overwrite it with False if we are "in bay"
-        # But usually discrete logic sets terminated=True on success.
+        # We just ensure we don't accidentally overwrite it with False if we are "in bay".
         # If crashed, we are done.
-        
+
         # Final reward composition
         return obs, reward, terminated, truncated, info
 
@@ -1723,66 +1906,89 @@ class WaypointEnv(ParkingEnv):
     def render(self):
         """
         Override parent render to add v34 corridor/bay overlays for training videos.
+
+        This version delegates the actual drawing of the corridor and bay
+        reference points to ParkingEnv.render_v34_overlays(), so all geometry
+        and conventions live in one place.
         """
-        # Call parent render first
+        # First, let the base ParkingEnv do its normal rendering
         result = super().render()
-        
-        # Add v34 overlays if we have an axis and waypoints
-        if hasattr(self, 'ax') and self.ax is not None and hasattr(self, 'waypoints') and self.waypoints is not None and len(self.waypoints) > 0:
-            try:
-                from ..planning.corridor import (
-                    compute_path_tangents,
-                    calculate_corridor_boundaries,
-                    calculate_8_point_bay_reference
-                )
-                
-                # CRITICAL FIX: Clear previous overlays to prevent piling up
-                # Remove all lines and scatter plots that were added by previous render calls
-                # Keep only the base environment elements (parking lot, car, obstacles)
-                artists_to_remove = []
-                for artist in self.ax.lines + self.ax.collections:
-                    # Check if this is an overlay (has specific properties we set)
-                    if hasattr(artist, '_v34_overlay'):
-                        artists_to_remove.append(artist)
-                for artist in artists_to_remove:
-                    artist.remove()
-                
-                # 1. Draw corridor boundaries (red dashed lines)
-                waypoints_corrected = compute_path_tangents(self.waypoints)
-                left_boundary, right_boundary = calculate_corridor_boundaries(
-                    waypoints_corrected, self.goal_bay, corridor_width=4.0  # v36.1: Widened corridor
-                )
-                
-                if left_boundary and len(left_boundary) > 0:
-                    left_x, left_y = zip(*left_boundary)
-                    line_left = self.ax.plot(left_x, left_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)[0]
-                    line_left._v34_overlay = True  # Mark for removal next frame
-                
-                if right_boundary and len(right_boundary) > 0:
-                    right_x, right_y = zip(*right_boundary)
-                    line_right = self.ax.plot(right_x, right_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)[0]
-                    line_right._v34_overlay = True  # Mark for removal next frame
-                
-                # 2. Draw 8-point bay reference (cyan dots)
-                bay_points = calculate_8_point_bay_reference(self.goal_bay)
-                if bay_points and len(bay_points) > 0:
-                    cyan_x, cyan_y = zip(*bay_points)
-                    scatter_bay = self.ax.scatter(cyan_x, cyan_y, c='cyan', s=15, zorder=22, 
-                                  edgecolors='black', linewidth=0.5, alpha=0.7)
-                    scatter_bay._v34_overlay = True  # Mark for removal next frame
-                
-                # 3. Draw waypoint path (yellow dots)
-                wps = np.array(self.waypoints)
-                scatter_wps = self.ax.scatter(wps[:, 0], wps[:, 1], c='yellow', s=20, zorder=20,
-                              edgecolors='black', linewidth=0.5, alpha=0.7)
-                scatter_wps._v34_overlay = True  # Mark for removal next frame
-                
-                # Redraw canvas with overlays
-                if hasattr(self, 'fig') and self.fig is not None:
-                    self.fig.canvas.draw()
-            
-            except Exception as e:
-                # Silently fail if v34 visualization fails (don't break training)
-                pass
-        
+
+        # Then, draw v34 overlays (if available)
+        try:
+            if hasattr(self, "render_v34_overlays"):
+                self.render_v34_overlays()
+        except Exception as e:
+            # Overlays are only for visualization – never break training.
+            if hasattr(self, "debug") and self.debug:
+                print(f"[WaypointEnv.render] v34 overlay error: {e}")
+
         return result
+
+    
+    # def render(self):
+    #     """
+    #     Override parent render to add v34 corridor/bay overlays for training videos.
+    #     """
+    #     # Call parent render first
+    #     result = super().render()
+        
+    #     # Add v34 overlays if we have an axis and waypoints
+    #     if hasattr(self, 'ax') and self.ax is not None and hasattr(self, 'waypoints') and self.waypoints is not None and len(self.waypoints) > 0:
+    #         try:
+    #             from ..planning.corridor import (
+    #                 compute_path_tangents,
+    #                 calculate_corridor_boundaries,
+    #                 calculate_8_point_bay_reference
+    #             )
+                
+    #             # CRITICAL FIX: Clear previous overlays to prevent piling up
+    #             # Remove all lines and scatter plots that were added by previous render calls
+    #             # Keep only the base environment elements (parking lot, car, obstacles)
+    #             artists_to_remove = []
+    #             for artist in self.ax.lines + self.ax.collections:
+    #                 # Check if this is an overlay (has specific properties we set)
+    #                 if hasattr(artist, '_v34_overlay'):
+    #                     artists_to_remove.append(artist)
+    #             for artist in artists_to_remove:
+    #                 artist.remove()
+                
+    #             # 1. Draw corridor boundaries (red dashed lines)
+    #             waypoints_corrected = compute_path_tangents(self.waypoints)
+    #             left_boundary, right_boundary = calculate_corridor_boundaries(
+    #                 waypoints_corrected, self.goal_bay, corridor_width=4.0  # v36.1: Widened corridor
+    #             )
+                
+    #             if left_boundary and len(left_boundary) > 0:
+    #                 left_x, left_y = zip(*left_boundary)
+    #                 line_left = self.ax.plot(left_x, left_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)[0]
+    #                 line_left._v34_overlay = True  # Mark for removal next frame
+                
+    #             if right_boundary and len(right_boundary) > 0:
+    #                 right_x, right_y = zip(*right_boundary)
+    #                 line_right = self.ax.plot(right_x, right_y, 'r--', linewidth=1.5, alpha=0.5, zorder=2)[0]
+    #                 line_right._v34_overlay = True  # Mark for removal next frame
+                
+    #             # 2. Draw 8-point bay reference (cyan dots)
+    #             bay_points = calculate_8_point_bay_reference(self.goal_bay)
+    #             if bay_points and len(bay_points) > 0:
+    #                 cyan_x, cyan_y = zip(*bay_points)
+    #                 scatter_bay = self.ax.scatter(cyan_x, cyan_y, c='cyan', s=15, zorder=22, 
+    #                               edgecolors='black', linewidth=0.5, alpha=0.7)
+    #                 scatter_bay._v34_overlay = True  # Mark for removal next frame
+                
+    #             # 3. Draw waypoint path (yellow dots)
+    #             wps = np.array(self.waypoints)
+    #             scatter_wps = self.ax.scatter(wps[:, 0], wps[:, 1], c='yellow', s=20, zorder=20,
+    #                           edgecolors='black', linewidth=0.5, alpha=0.7)
+    #             scatter_wps._v34_overlay = True  # Mark for removal next frame
+                
+    #             # Redraw canvas with overlays
+    #             if hasattr(self, 'fig') and self.fig is not None:
+    #                 self.fig.canvas.draw()
+            
+    #         except Exception as e:
+    #             # Silently fail if v34 visualization fails (don't break training)
+    #             pass
+        
+    #     return result

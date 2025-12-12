@@ -1,8 +1,9 @@
-# Core dependencies
-numpy>=1.24.0
-matplotlib>=3.7.0
-scipy>=1.10.0
-pyyaml>=6.0
+# Core dependencies (Pip instals to ensure NumPy 2.x compatibility for the model)
+numpy>=2.0.0
+matplotlib>=3.8.4
+scipy>=1.13.0
+opencv-python-headless
+pyyaml
 
 # RL dependencies
 gymnasium>=0.29.0
@@ -10,6 +11,30 @@ stable-baselines3>=2.0.0
 tensorboard>=2.13.0
 tqdm>=4.65.0
 rich>=13.0.0
+imageio[ffmpeg]
+shapely
 
 # Development dependencies (optional)
 pytest>=7.4.0
+
+
+# Development dependencies (optional)
+pytest>=7.4.0
+
+# # Core dependencies
+# numpy>=1.24.0
+# matplotlib>=3.7.0
+# scipy>=1.10.0
+# pyyaml>=6.0
+
+# # RL dependencies
+# gymnasium>=0.29.0
+# stable-baselines3>=2.0.0
+# tensorboard>=2.13.0
+# tqdm>=4.65.0
+# rich>=13.0.0
+# imageio
+# opencv-python
+
+# # Development dependencies (optional)
+# pytest>=7.4.0
