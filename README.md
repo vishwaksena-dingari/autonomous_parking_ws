@@ -1,6 +1,10 @@
-# Autonomous Parking Agent
+<p align="center">
+  <h1>🚗 Autonomous Parking Agent</h1>
+</p>
 
 Hierarchical Reinforcement Learning agent for autonomous parking with 16-stage curriculum learning, developed for ROS 2 Humble.
+
+🚗 PPO + Hybrid A* Path Planning · Curriculum RL (16 Stages) · ROS2 Humble · Gymnasium
 
 [![ROS 2 Humble](https://img.shields.io/badge/ROS2-Humble-blue)](https://docs.ros.org/en/humble/)
 [![RL](https://img.shields.io/badge/Stable--Baselines3-PPO-brightgreen)](https://stable-baselines3.readthedocs.io/)
@@ -8,12 +12,33 @@ Hierarchical Reinforcement Learning agent for autonomous parking with 16-stage c
 
 ---
 
+## 🎥 Demo Video
+
+https://github.com/user-attachments/assets/800f7e08-97b2-41b7-9a4a-3b677716af46
+
+
+---
+
+## 🧠 What This Project Demonstrates
+
+- Hierarchical Reinforcement Learning with PPO (Stable-Baselines3)
+- Hybrid A* Path Planning integrated with RL policies
+- Curriculum Learning across 16 progressive parking scenarios
+- ROS 2 Humble simulation workflow
+- Dockerized reproducible robotics pipelines
+- Automated training + evaluation logging with TensorBoard
+
+---
+
+
 ## ⚡ TL;DR - Quick Start (Copy & Paste)
 
 Here are the **exact commands** to run the project immediately.
 
 ### Option 1: Docker
-*Run this from the folder where you extracted the project.*
+<!-- *Run this from the folder where you extracted the project.* -->
+<!-- *Run this from the folder where you extracted the project [project root (`autonomous_parking_ws`)].* -->
+*Run from the project root directory (the folder containing `Dockerfile` and `run_local.sh`).*
 
 ```bash
 # cd autonomous_parking_ws && \
