@@ -1,6 +1,4 @@
-<p align="center">
-  <h1>🚗 Autonomous Parking Agent</h1>
-</p>
+<h1 align="center">🚗 Autonomous Parking Agent</h1>
 
 Hierarchical Reinforcement Learning agent for autonomous parking with 16-stage curriculum learning, developed for ROS 2 Humble.
 
