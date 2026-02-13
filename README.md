@@ -4,7 +4,7 @@
 
 Hierarchical Reinforcement Learning agent for autonomous parking with 16-stage curriculum learning, developed for ROS 2 Humble.
 
-🚗 PPO + Hybrid A* Path Planning · Curriculum RL (16 Stages) · ROS2 Humble · Gymnasium
+🚗 PPO + Hybrid A* Path Planning · Curriculum RL (16 Stages) · ROS2 Humble · 2D Gymnasium Environment
 
 [![ROS 2 Humble](https://img.shields.io/badge/ROS2-Humble-blue)](https://docs.ros.org/en/humble/)
 [![RL](https://img.shields.io/badge/Stable--Baselines3-PPO-brightgreen)](https://stable-baselines3.readthedocs.io/)
@@ -24,7 +24,8 @@ https://github.com/user-attachments/assets/800f7e08-97b2-41b7-9a4a-3b677716af46
 - Hierarchical Reinforcement Learning with PPO (Stable-Baselines3)
 - Hybrid A* Path Planning integrated with RL policies
 - Curriculum Learning across 16 progressive parking scenarios
-- ROS 2 Humble simulation workflow
+- ROS 2 Humble–compatible 2D Gymnasium simulation environment for rapid RL training
+- Lightweight 2D Gymnasium-based parking environment enabling fast curriculum RL iteration
 - Dockerized reproducible robotics pipelines
 - Automated training + evaluation logging with TensorBoard
 
